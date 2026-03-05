@@ -3,6 +3,8 @@ FROM golang:1.21-alpine AS builder
 
 WORKDIR /app
 COPY go/ .
+# Fix: Ensure dependencies are tidied and downloaded
+RUN go mod tidy
 RUN go mod download
 RUN go build -o bot main.go
 
