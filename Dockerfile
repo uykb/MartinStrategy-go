@@ -9,7 +9,7 @@ RUN go mod download
 RUN go build -o bot main.go
 
 # Stage 2: Python Runtime + Go Binary
-FROM python:3.10-slim
+FROM python:3.11-slim
 
 WORKDIR /app
 
