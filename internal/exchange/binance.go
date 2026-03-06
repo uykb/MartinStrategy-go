@@ -23,6 +23,9 @@ type BinanceClient struct {
 func NewBinanceClient(cfg *config.ExchangeConfig, bus *core.EventBus) *BinanceClient {
 	futures.UseTestnet = cfg.UseTestnet
 	client := binance.NewFuturesClient(cfg.ApiKey, cfg.ApiSecret)
+	// Enable time synchronization to avoid "Timestamp for this request was 1000ms ahead" errors
+	client.SetTimeOffset(-1) 
+	
 	return &BinanceClient{
 		client: client,
 		cfg:    cfg,
