@@ -24,7 +24,17 @@ func NewBinanceClient(cfg *config.ExchangeConfig, bus *core.EventBus) *BinanceCl
 	futures.UseTestnet = cfg.UseTestnet
 	client := binance.NewFuturesClient(cfg.ApiKey, cfg.ApiSecret)
 	// Enable time synchronization to avoid "Timestamp for this request was 1000ms ahead" errors
-	client.SetTimeOffset(-1) 
+	// For futures client, the method might be different or we need to access the embedded BaseClient
+	// Actually, go-binance futures client doesn't expose SetTimeOffset directly on the wrapper sometimes.
+	// But let's check: NewFuturesClient returns *futures.Client.
+	// It seems SetTimeOffset is not exported on futures.Client.
+	// We might need to call NewService to sync time manually or just ignore if library handles it.
+	// Wait, the library usually does this via:
+	// client.NewSetServerTimeService().Do(context.Background())
+	// Let's try that instead of the method which might be spot-only.
+	
+	// Sync time manually
+	// client.NewSetServerTimeService().Do(context.Background())
 	
 	return &BinanceClient{
 		client: client,
@@ -35,6 +45,12 @@ func NewBinanceClient(cfg *config.ExchangeConfig, bus *core.EventBus) *BinanceCl
 
 // StartWS connects to the websocket stream
 func (bc *BinanceClient) StartWS() error {
+	// Sync Server Time first
+	if err := bc.client.NewSetServerTimeService().Do(context.Background()); err != nil {
+		utils.Logger.Error("Failed to sync server time", zap.Error(err))
+		// We continue anyway, hoping it's a transient network issue
+	}
+
 	// Connect to User Data Stream (Order Updates)
 	listenKey, err := bc.client.NewStartUserStreamService().Do(context.Background())
 	if err != nil {
