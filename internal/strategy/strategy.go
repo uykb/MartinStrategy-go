@@ -144,8 +144,8 @@ func (s *MartingaleStrategy) syncState() {
 			for _, o := range orders {
 				if o.Side == futures.SideTypeSell && o.Type == futures.OrderTypeLimit {
 					hasTP = true
-					s.currentTPOrderID = o.ID
-					utils.Logger.Info("Found existing TP order", zap.Int64("id", o.ID))
+					s.currentTPOrderID = o.OrderID
+					utils.Logger.Info("Found existing TP order", zap.Int64("id", o.OrderID))
 					break
 				}
 			}
