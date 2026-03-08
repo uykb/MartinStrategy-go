@@ -374,6 +374,7 @@ func (s *MartingaleStrategy) placeGridOrders() {
 		currentPriceLevel = price // Update for next step (relative distance)
 		
 		// Ensure price precision
+		price = utils.RoundToTickSize(price, s.tickSize)
 		price = utils.ToFixed(price, s.pricePrecision) // Should align to tickSize really
 		
 		// Fibonacci Volume: Qty = UnitQty * Fib(i)
@@ -443,6 +444,8 @@ func (s *MartingaleStrategy) updateTP() {
 	// 4. Place new TP
 	// TP Qty = Full Position
 	// Round Price to TickSize
+	tpPrice = utils.RoundToTickSize(tpPrice, s.tickSize)
+	// Double check with precision just in case
 	tpPrice = utils.ToFixed(tpPrice, s.pricePrecision)
 	
 	utils.Logger.Info("Updating TP", zap.Float64("Price", tpPrice), zap.Float64("Qty", amt))

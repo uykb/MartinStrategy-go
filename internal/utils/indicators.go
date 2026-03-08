@@ -26,7 +26,7 @@ func CalculateATR(highs, lows, closes []float64, period int) float64 {
 // Convert float64 slice to precision for orders
 func ToFixed(num float64, precision int) float64 {
 	output := math.Pow(10, float64(precision))
-	return float64(int(num*output)) / output
+	return math.Round(num*output) / output
 }
 
 // RoundUpToTickSize rounds up a number to the nearest multiple of tickSize
@@ -37,5 +37,15 @@ func RoundUpToTickSize(num float64, tickSize float64) float64 {
 	}
 	// Use Decimal for precision if needed, but for now simple float math with epsilon
 	// ceil(num / tickSize) * tickSize
-	return math.Ceil(num/tickSize) * tickSize
+	// Adding epsilon to handle float precision issues
+	return math.Ceil(num/tickSize - 0.00000001) * tickSize
+}
+
+// RoundToTickSize rounds a number to the nearest multiple of tickSize (standard rounding)
+// Used for price formatting to match exchange filters
+func RoundToTickSize(num float64, tickSize float64) float64 {
+	if tickSize == 0 {
+		return num
+	}
+	return math.Round(num/tickSize) * tickSize
 }
