@@ -300,25 +300,21 @@ func (s *MartingaleStrategy) enterLong(currentPrice float64) error {
 	s.updateATR()
 	
 	// Calculate Base Quantity
-	// Logic: MinNotional (5 USDT) / Price -> rounded UP to stepSize
-	minNotionalQty := MinNotional / currentPrice
-	baseQty := utils.RoundUpToTickSize(minNotionalQty, s.stepSize)
+	// Logic: Unit = MinNotional (5 USDT) / Price -> rounded UP to stepSize
+	// Base Order = 2 * Unit
+	unitQtyRaw := MinNotional / currentPrice
+	unitQty := utils.RoundUpToTickSize(unitQtyRaw, s.stepSize)
 	
-	// Ensure baseQty >= minQty
-	if baseQty < s.minQty {
-		baseQty = s.minQty
+	if unitQty < s.minQty {
+		unitQty = s.minQty
 	}
 	
-	// Use configured BaseOrderSize if it's larger than min required
-	// But user said: "Start with min notional (5U), then Fibonacci"
-	// So we ignore cfg.BaseOrderSize for quantity calc if the intent is strictly 5U start?
-	// User said: "calculate base仓位 based on Binance min order size (5U)"
-	// Let's use the calculated 5U qty as unit "1" for Fibonacci.
+	baseQty := unitQty * 2.0
 	
 	utils.Logger.Info("Calculated Base Qty", 
 		zap.Float64("price", currentPrice), 
-		zap.Float64("raw_qty", minNotionalQty), 
-		zap.Float64("final_qty", baseQty),
+		zap.Float64("unit_qty", unitQty), 
+		zap.Float64("base_qty", baseQty),
 	)
 
 	_, err := s.exchange.PlaceOrder(futures.SideTypeBuy, futures.OrderTypeMarket, baseQty, 0)
@@ -490,11 +486,14 @@ func (s *MartingaleStrategy) updateATR() {
 }
 
 func (s *MartingaleStrategy) getFibonacci(n int) int {
-	if n <= 1 {
+	if n <= 0 {
+		return 0
+	}
+	if n <= 2 {
 		return 1
 	}
 	a, b := 1, 1
-	for i := 2; i <= n; i++ {
+	for i := 3; i <= n; i++ {
 		a, b = b, a+b
 	}
 	return b
