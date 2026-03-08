@@ -7,7 +7,7 @@ exchange:
 strategy:
   base_order_size: 100.0
   safety_order_size: 100.0
-  max_safety_orders: 5
+  max_safety_orders: 7
   volume_scale: 1.5
   step_scale: 1.2
   target_profit: 0.01

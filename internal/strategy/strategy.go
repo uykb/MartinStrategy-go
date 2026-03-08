@@ -78,28 +78,57 @@ func (s *MartingaleStrategy) Start() {
 }
 
 func (s *MartingaleStrategy) initSymbolInfo() error {
-	// We need to fetch Exchange Info
-	// For now, let's assume default values or fetch it
-	// TODO: Implement GetExchangeInfo in BinanceClient
-	// Hardcoded for HYPEUSDT/USDT pairs usually:
-	// Price Precision: 2 (0.01) or 4 (0.0001)
-	// Qty Precision: 2 (0.01) or 3 (0.001) or 0 (1)
-	
-	// Assuming HYPEUSDT has:
-	// Price Precision: 3 (0.001) based on user input
-	// Qty Precision: 0 (1.0) or 1 (0.1) - let's assume 0.1 for now or 1?
-	// User said "minimum 0.50 quantity" previously, implying stepSize 0.01
-	// Let's stick to stepSize 0.01 for qty as per previous instruction, but fix price to 3 decimals.
-	
-	s.quantityPrecision = 2
-	s.pricePrecision = 3
-	s.stepSize = 0.01
-	s.tickSize = 0.001
-	s.minQty = 0.01 // Default fallback
-	
-	utils.Logger.Info("Symbol Info Initialized (Hardcoded - Pending API impl)", 
+	info, err := s.exchange.GetExchangeInfo()
+	if err != nil {
+		return fmt.Errorf("failed to get exchange info: %w", err)
+	}
+
+	symbol := s.exchange.GetSymbol()
+	var symbolInfo futures.Symbol
+	found := false
+	for _, sym := range info.Symbols {
+		if sym.Symbol == symbol {
+			symbolInfo = sym
+			found = true
+			break
+		}
+	}
+	if !found {
+		return fmt.Errorf("symbol %s not found in exchange info", symbol)
+	}
+
+	s.quantityPrecision = symbolInfo.QuantityPrecision
+	s.pricePrecision = symbolInfo.PricePrecision
+
+	// Parse Filters
+	for _, filter := range symbolInfo.Filters {
+		filterType, ok := filter["filterType"].(string)
+		if !ok {
+			continue
+		}
+
+		switch filterType {
+		case "LOT_SIZE":
+			if stepSize, ok := filter["stepSize"].(string); ok {
+				s.stepSize, _ = strconv.ParseFloat(stepSize, 64)
+			}
+			if minQty, ok := filter["minQty"].(string); ok {
+				s.minQty, _ = strconv.ParseFloat(minQty, 64)
+			}
+		case "PRICE_FILTER":
+			if tickSize, ok := filter["tickSize"].(string); ok {
+				s.tickSize, _ = strconv.ParseFloat(tickSize, 64)
+			}
+		}
+	}
+
+	utils.Logger.Info("Symbol Info Initialized",
+		zap.String("symbol", symbol),
+		zap.Int("price_prec", s.pricePrecision),
 		zap.Int("qty_prec", s.quantityPrecision),
 		zap.Float64("step_size", s.stepSize),
+		zap.Float64("tick_size", s.tickSize),
+		zap.Float64("min_qty", s.minQty),
 	)
 	return nil
 }

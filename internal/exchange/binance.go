@@ -129,15 +129,25 @@ func (bc *BinanceClient) GetPosition() (*futures.AccountPosition, error) {
 	return nil, fmt.Errorf("position not found for %s", bc.cfg.Symbol)
 }
 
+func (bc *BinanceClient) GetSymbol() string {
+	return bc.cfg.Symbol
+}
+
+func (bc *BinanceClient) GetExchangeInfo() (*futures.ExchangeInfo, error) {
+	return bc.client.NewExchangeInfoService().Do(context.Background())
+}
+
 func (bc *BinanceClient) PlaceOrder(side futures.SideType, orderType futures.OrderType, quantity, price float64) (*futures.CreateOrderResponse, error) {
+	qtyStr := strconv.FormatFloat(quantity, 'f', -1, 64)
 	service := bc.client.NewCreateOrderService().
 		Symbol(bc.cfg.Symbol).
 		Side(side).
 		Type(orderType).
-		Quantity(fmt.Sprintf("%f", quantity))
+		Quantity(qtyStr)
 
 	if orderType == futures.OrderTypeLimit {
-		service.Price(fmt.Sprintf("%f", price)).TimeInForce(futures.TimeInForceTypeGTC)
+		priceStr := strconv.FormatFloat(price, 'f', -1, 64)
+		service.Price(priceStr).TimeInForce(futures.TimeInForceTypeGTC)
 	}
 
 	return service.Do(context.Background())
