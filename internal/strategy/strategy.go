@@ -483,7 +483,7 @@ func (s *MartingaleStrategy) updateTP() {
 }
 
 func (s *MartingaleStrategy) updateATR() {
-	klines, err := s.exchange.GetKlines("15m", 50)
+	klines, err := s.exchange.GetKlines("30m", 50)
 	if err != nil {
 		utils.Logger.Error("Failed to get klines", zap.Error(err))
 		return
