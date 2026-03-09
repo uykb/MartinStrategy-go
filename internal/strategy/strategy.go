@@ -395,6 +395,9 @@ func (s *MartingaleStrategy) placeGridOrders() {
 		if err != nil {
 			utils.Logger.Error("Failed to place safety order", zap.Int("index", i), zap.Error(err))
 		}
+		
+		// Avoid hitting API rate limits
+		time.Sleep(200 * time.Millisecond)
 	}
 	
 	// Place Initial TP
