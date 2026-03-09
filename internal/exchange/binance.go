@@ -173,10 +173,10 @@ func (bc *BinanceClient) GetOpenOrders() ([]*futures.Order, error) {
 		Do(context.Background())
 }
 
-func (bc *BinanceClient) GetKlines(limit int) ([]*futures.Kline, error) {
+func (bc *BinanceClient) GetKlines(interval string, limit int) ([]*futures.Kline, error) {
 	return bc.client.NewKlinesService().
 		Symbol(bc.cfg.Symbol).
-		Interval("1h").
+		Interval(interval).
 		Limit(limit).
 		Do(context.Background())
 }
