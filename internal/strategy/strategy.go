@@ -381,6 +381,18 @@ func (s *MartingaleStrategy) placeGridOrders() {
 		volMult := s.getFibonacci(i) // 1, 1, 2, 3...
 		qty := unitQty * float64(volMult)
 		
+		// Ensure MinNotional (5 USDT) at the LIMIT PRICE
+		// If Qty * Price < 5.0, Binance will reject.
+		// Since Price < EntryPrice, the original UnitQty (based on EntryPrice) might be insufficient.
+		if qty*price < MinNotional {
+			utils.Logger.Info("Adjusting Qty to meet MinNotional", 
+				zap.Int("index", i), 
+				zap.Float64("old_qty", qty), 
+				zap.Float64("price", price),
+			)
+			qty = MinNotional / price
+		}
+
 		// Round qty to stepSize
 		qty = utils.RoundUpToTickSize(qty, s.stepSize)
 		
