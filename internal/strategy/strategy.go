@@ -339,37 +339,53 @@ func (s *MartingaleStrategy) placeGridOrders() {
 	}
 	entryPrice, _ := strconv.ParseFloat(pos.EntryPrice, 64)
 	
-	s.mu.RLock()
-	atr := s.currentATR
-	s.mu.RUnlock()
-
-	if atr == 0 {
-		atr = entryPrice * 0.01 // Fallback 1%
-	}
+	// Pre-calculate ATRs for different timeframes
+	atr15m := s.fetchATR("15m")
+	atr30m := s.fetchATR("30m")
+	atr1h := s.fetchATR("1h")
+	atr4h := s.fetchATR("4h")
+	atr1d := s.fetchATR("1d")
 	
+	// If any ATR failed (0), fallback to entryPrice * 0.01
+	if atr15m == 0 { atr15m = entryPrice * 0.01 }
+	if atr30m == 0 { atr30m = entryPrice * 0.01 }
+	if atr1h == 0 { atr1h = entryPrice * 0.01 }
+	if atr4h == 0 { atr4h = entryPrice * 0.01 }
+	if atr1d == 0 { atr1d = entryPrice * 0.01 }
+
 	// Calculate Unit Quantity (Fibonacci 1) based on MinNotional logic
 	// We need to know what "1 unit" is. It is the base order size (5U).
 	unitQty := utils.RoundUpToTickSize(MinNotional / entryPrice, s.stepSize)
 	
-	utils.Logger.Info("Placing Grid Orders", zap.Float64("Entry", entryPrice), zap.Float64("ATR", atr), zap.Float64("UnitQty", unitQty))
+	utils.Logger.Info("Placing Grid Orders", zap.Float64("Entry", entryPrice), zap.Float64("ATR15m", atr15m), zap.Float64("UnitQty", unitQty))
 
 	// Define Multiplier Sequence (Piecewise Function)
-	// [1.0, 1.0, 3.1, 2.1, 4.25, 4.25, 6.5]
-	multipliers := []float64{1.0, 1.0, 3.1, 2.1, 4.25, 4.25, 6.5}
+	// 1: 15m, 2: 15m, 3: 30m, 4: 30m, 5: 30m, 6: 1h, 7: 1h, 8: 4h, 9: 1d
+	// Distances are relative to previous order
+	gridDistances := []float64{
+		atr15m, // 1
+		atr15m, // 2
+		atr30m, // 3
+		atr30m, // 4
+		atr30m, // 5
+		atr1h,  // 6
+		atr1h,  // 7
+		atr4h,  // 8
+		atr1d,  // 9
+	}
 	
 	currentPriceLevel := entryPrice
 
 	for i := 1; i <= s.cfg.MaxSafetyOrders; i++ {
-		// Calculate Price: Based on cumulative distance using multipliers
-		// Get multiplier for this step, default to last known or 1.0 if out of bounds
-		mult := 1.0
-		if i-1 < len(multipliers) {
-			mult = multipliers[i-1]
-		} else if len(multipliers) > 0 {
-			mult = multipliers[len(multipliers)-1]
+		// Calculate Price: Based on cumulative distance
+		stepDist := 0.0
+		if i-1 < len(gridDistances) {
+			stepDist = gridDistances[i-1]
+		} else {
+			// Fallback to last known distance if config has more orders than we defined
+			stepDist = gridDistances[len(gridDistances)-1]
 		}
 		
-		stepDist := atr * mult
 		price := currentPriceLevel - stepDist
 		currentPriceLevel = price // Update for next step (relative distance)
 		
@@ -441,12 +457,19 @@ func (s *MartingaleStrategy) updateTP() {
 		s.mu.RUnlock()
 		return
 	}
-	atr := s.currentATR
+	// Always use 15m ATR for TP as requested
+	atr15m := s.fetchATR("15m")
+	if atr15m == 0 {
+		atr15m = avgPrice * 0.01
+	}
 	oldTPID := s.currentTPOrderID
 	s.mu.RUnlock()
 	
-	// 2. Calculate TP Price: Avg + ATR * 0.8
-	tpPrice := avgPrice + (atr * 0.8)
+	// 2. Calculate TP Price: Avg + ATR(15m) * 1.0 (or 0.8 as before?)
+	// User said "Stop profit set 15 minutes ATR stop profit", usually means 1.0 * ATR unless specified.
+	// Previous code was 0.8. Let's stick to 1.0 unit or 0.8? 
+	// The prompt says "Stop profit set 15 minutes ATR". It implies 1 unit.
+	tpPrice := avgPrice + atr15m
 	
 	// 3. Cancel old TP
 	if oldTPID != 0 {
@@ -483,10 +506,18 @@ func (s *MartingaleStrategy) updateTP() {
 }
 
 func (s *MartingaleStrategy) updateATR() {
-	klines, err := s.exchange.GetKlines("30m", 50)
+	// Deprecated or can be kept as a default updater for s.currentATR if needed elsewhere
+	// But since we now fetch specific ATRs on demand, we can simplify or remove.
+	// For backward compatibility with other parts if they use s.currentATR:
+	s.currentATR = s.fetchATR("15m")
+	utils.Logger.Info("ATR Updated (Default 15m)", zap.Float64("ATR", s.currentATR))
+}
+
+func (s *MartingaleStrategy) fetchATR(interval string) float64 {
+	klines, err := s.exchange.GetKlines(interval, 50)
 	if err != nil {
-		utils.Logger.Error("Failed to get klines", zap.Error(err))
-		return
+		utils.Logger.Error("Failed to get klines", zap.String("interval", interval), zap.Error(err))
+		return 0
 	}
 	
 	var highs, lows, closes []float64
@@ -499,8 +530,7 @@ func (s *MartingaleStrategy) updateATR() {
 		closes = append(closes, c)
 	}
 	
-	s.currentATR = utils.CalculateATR(highs, lows, closes, s.cfg.AtrPeriod)
-	utils.Logger.Info("ATR Updated", zap.Float64("ATR", s.currentATR))
+	return utils.CalculateATR(highs, lows, closes, s.cfg.AtrPeriod)
 }
 
 func (s *MartingaleStrategy) getFibonacci(n int) int {
