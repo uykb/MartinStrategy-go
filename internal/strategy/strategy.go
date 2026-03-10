@@ -360,16 +360,16 @@ func (s *MartingaleStrategy) placeGridOrders() {
 	utils.Logger.Info("Placing Grid Orders", zap.Float64("Entry", entryPrice), zap.Float64("ATR15m", atr15m), zap.Float64("UnitQty", unitQty))
 
 	// Define Multiplier Sequence (Piecewise Function)
-	// 1: 15m, 2: 15m, 3: 30m, 4: 30m, 5: 30m, 6: 1h, 7: 1h, 8: 4h, 9: 1d
+	// 1: 15m, 2: 15m, 3: 30m, 4: 30m, 5: 1h, 6: 1h, 7: 4h, 8: 4h, 9: 1d
 	// Distances are relative to previous order
 	gridDistances := []float64{
 		atr15m, // 1
 		atr15m, // 2
 		atr30m, // 3
 		atr30m, // 4
-		atr30m, // 5
+		atr1h,  // 5
 		atr1h,  // 6
-		atr1h,  // 7
+		atr4h,  // 7
 		atr4h,  // 8
 		atr1d,  // 9
 	}
@@ -465,11 +465,10 @@ func (s *MartingaleStrategy) updateTP() {
 	oldTPID := s.currentTPOrderID
 	s.mu.RUnlock()
 	
-	// 2. Calculate TP Price: Avg + ATR(15m) * 1.0 (or 0.8 as before?)
+	// 2. Calculate TP Price: Avg + ATR(15m) * 0.8
 	// User said "Stop profit set 15 minutes ATR stop profit", usually means 1.0 * ATR unless specified.
-	// Previous code was 0.8. Let's stick to 1.0 unit or 0.8? 
-	// The prompt says "Stop profit set 15 minutes ATR". It implies 1 unit.
-	tpPrice := avgPrice + atr15m
+	// Update: User requested 0.8 * 15m ATR
+	tpPrice := avgPrice + (atr15m * 0.8)
 	
 	// 3. Cancel old TP
 	if oldTPID != 0 {
