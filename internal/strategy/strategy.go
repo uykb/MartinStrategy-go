@@ -340,48 +340,52 @@ func (s *MartingaleStrategy) placeGridOrders() {
 	entryPrice, _ := strconv.ParseFloat(pos.EntryPrice, 64)
 
 	// Pre-calculate ATRs for different timeframes
-	atr15m := s.fetchATR("15m")
 	atr30m := s.fetchATR("30m")
 	atr1h := s.fetchATR("1h")
+	atr2h := s.fetchATR("2h")
 	atr4h := s.fetchATR("4h")
-	atr1d := s.fetchATR("1d")
-
+	atr6h := s.fetchATR("6h")
+	atr8h := s.fetchATR("8h")
+	
 	// If any ATR failed (0), fallback to entryPrice * 0.01
-	if atr15m == 0 {
-		atr15m = entryPrice * 0.01
-	}
 	if atr30m == 0 {
 		atr30m = entryPrice * 0.01
 	}
 	if atr1h == 0 {
 		atr1h = entryPrice * 0.01
 	}
+	if atr2h == 0 {
+		atr2h = entryPrice * 0.01
+	}
 	if atr4h == 0 {
 		atr4h = entryPrice * 0.01
 	}
-	if atr1d == 0 {
-		atr1d = entryPrice * 0.01
+	if atr6h == 0 {
+		atr6h = entryPrice * 0.01
+	}
+	if atr8h == 0 {
+		atr8h = entryPrice * 0.01
 	}
 
 	// Calculate Unit Quantity (Fibonacci 1) based on MinNotional logic
 	// We need to know what "1 unit" is. It is the base order size (5U).
 	unitQty := utils.RoundUpToTickSize(MinNotional/entryPrice, s.stepSize)
 
-	utils.Logger.Info("Placing Grid Orders", zap.Float64("Entry", entryPrice), zap.Float64("ATR15m", atr15m), zap.Float64("UnitQty", unitQty))
+	utils.Logger.Info("Placing Grid Orders", zap.Float64("Entry", entryPrice), zap.Float64("ATR30m", atr30m), zap.Float64("UnitQty", unitQty))
 
 	// Define Multiplier Sequence (Piecewise Function)
-	// 1: 15m, 2: 15m, 3: 30m, 4: 30m, 5: 1h, 6: 1h, 7: 4h, 8: 4h, 9: 1d
+	// 1: 30m, 2: 30m, 3: 1h, 4: 1h, 5: 2h, 6: 2h, 7: 4h, 8: 6h, 9: 8h
 	// Distances are relative to previous order
 	gridDistances := []float64{
-		atr15m, // 1
-		atr15m, // 2
-		atr30m, // 3
-		atr30m, // 4
-		atr1h,  // 5
-		atr1h,  // 6
+		atr30m, // 1
+		atr30m, // 2
+		atr1h,  // 3
+		atr1h,  // 4
+		atr2h,  // 5
+		atr2h,  // 6
 		atr4h,  // 7
-		atr4h,  // 8
-		atr1d,  // 9
+		atr6h,  // 8
+		atr8h,  // 9
 	}
 
 	currentPriceLevel := entryPrice
