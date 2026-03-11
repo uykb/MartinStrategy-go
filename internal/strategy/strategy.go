@@ -36,14 +36,14 @@ type MartingaleStrategy struct {
 	storage  *storage.Database
 	bus      *core.EventBus
 
-	mu           sync.RWMutex
-	currentState State
-	position     *futures.AccountPosition
-	activeOrders map[int64]*futures.Order // Local cache of active orders
+	mu               sync.RWMutex
+	currentState     State
+	position         *futures.AccountPosition
+	activeOrders     map[int64]*futures.Order // Local cache of active orders
 	currentTPOrderID int64
-	
-	currentATR   float64
-	
+
+	currentATR float64
+
 	// Symbol Info
 	quantityPrecision int
 	pricePrecision    int
@@ -72,7 +72,7 @@ func (s *MartingaleStrategy) Start() {
 	// Subscribe to events
 	s.bus.Subscribe(core.EventTick, s.handleTick)
 	s.bus.Subscribe(core.EventOrderUpdate, s.handleOrderUpdate)
-	
+
 	// Initial state sync
 	s.syncState()
 }
@@ -136,10 +136,10 @@ func (s *MartingaleStrategy) initSymbolInfo() error {
 func (s *MartingaleStrategy) syncState() {
 	// Note: We avoid holding s.mu.Lock() for the entire duration if we do heavy network calls
 	// But syncState is initialization, so it's fine.
-	
+
 	// 1. Get Position (Network call, could be outside lock, but we need atomic update)
 	// Let's do it inside for simplicity as it's init.
-	
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -154,14 +154,14 @@ func (s *MartingaleStrategy) syncState() {
 	amt, _ := strconv.ParseFloat(pos.PositionAmt, 64)
 	if math.Abs(amt) > 0 {
 		s.currentState = StateInPosition
-		
+
 		// If in position, we MUST ensure we have a TP order.
 		// Since we might have restarted, our memory (currentTPOrderID) is lost.
-		
+
 		// 1. Update ATR (Critical for TP calculation)
 		// Note: updateATR makes a network call. Inside Lock it blocks, but for init it's acceptable.
 		s.updateATR()
-		
+
 		// 2. Check Open Orders
 		orders, err := s.exchange.GetOpenOrders()
 		if err != nil {
@@ -178,14 +178,14 @@ func (s *MartingaleStrategy) syncState() {
 					break
 				}
 			}
-			
+
 			if !hasTP {
 				utils.Logger.Warn("Detected position without TP order. Restoring TP...")
 				// We launch this in a goroutine to avoid deadlock if updateTP needs lock (it does RLock)
 				// But wait, updateTP needs RLock, we hold Lock. Deadlock!
 				// We must release lock before calling updateTP, or updateTP shouldn't lock if called internally.
 				// Better: Release lock, then call updateTP.
-				
+
 				// But we are in defer s.mu.Unlock().
 				// Let's use a flag and do it after unlock?
 				// Or spawn a goroutine that waits a bit?
@@ -205,7 +205,7 @@ func (s *MartingaleStrategy) syncState() {
 	} else {
 		s.currentState = StateIdle
 	}
-	
+
 	utils.Logger.Info("State Synced", zap.String("state", string(s.currentState)), zap.Float64("amt", amt))
 }
 
@@ -244,8 +244,8 @@ func (s *MartingaleStrategy) handleOrderUpdate(ctx context.Context, event core.E
 		return fmt.Errorf("invalid order update data: expected *futures.WsOrderTradeUpdate, got %T", event.Data)
 	}
 
-	utils.Logger.Info("Order Update Received", 
-		zap.Int64("id", order.ID), 
+	utils.Logger.Info("Order Update Received",
+		zap.Int64("id", order.ID),
 		zap.String("status", string(order.Status)),
 		zap.String("type", string(order.Type)),
 	)
@@ -254,7 +254,7 @@ func (s *MartingaleStrategy) handleOrderUpdate(ctx context.Context, event core.E
 		if order.Side == futures.SideTypeBuy {
 			// Buy Order Filled (Base or Safety)
 			utils.Logger.Info("Buy Order Filled", zap.String("type", string(order.Type)))
-			
+
 			s.mu.Lock()
 			prevState := s.currentState
 			s.currentState = StateInPosition
@@ -272,17 +272,17 @@ func (s *MartingaleStrategy) handleOrderUpdate(ctx context.Context, event core.E
 			// Sell Order Filled (TP, Manual, or Stop)
 			// Assume any sell fill in Long strategy means closing/reducing position
 			// For simplicity in Martingale, we assume full close on TP
-			
-			utils.Logger.Info("Sell Order Filled (TP/Manual). Resetting to IDLE.", 
+
+			utils.Logger.Info("Sell Order Filled (TP/Manual). Resetting to IDLE.",
 				zap.String("type", string(order.Type)),
 				zap.String("status", string(order.Status)),
 			)
-			
+
 			s.mu.Lock()
 			s.currentState = StateIdle
 			s.currentTPOrderID = 0
 			s.mu.Unlock()
-			
+
 			s.exchange.CancelAllOrders()
 			// Wait a bit before next cycle
 			time.Sleep(5 * time.Second)
@@ -295,25 +295,25 @@ func (s *MartingaleStrategy) handleOrderUpdate(ctx context.Context, event core.E
 
 func (s *MartingaleStrategy) enterLong(currentPrice float64) error {
 	utils.Logger.Info("Entering Long Position...")
-	
+
 	// Update ATR before entry
 	s.updateATR()
-	
+
 	// Calculate Base Quantity
 	// Logic: Unit = MinNotional (5 USDT) / Price -> rounded UP to stepSize
 	// Base Order = 2 * Unit
 	unitQtyRaw := MinNotional / currentPrice
 	unitQty := utils.RoundUpToTickSize(unitQtyRaw, s.stepSize)
-	
+
 	if unitQty < s.minQty {
 		unitQty = s.minQty
 	}
-	
+
 	baseQty := unitQty * 2.0
-	
-	utils.Logger.Info("Calculated Base Qty", 
-		zap.Float64("price", currentPrice), 
-		zap.Float64("unit_qty", unitQty), 
+
+	utils.Logger.Info("Calculated Base Qty",
+		zap.Float64("price", currentPrice),
+		zap.Float64("unit_qty", unitQty),
 		zap.Float64("base_qty", baseQty),
 	)
 
@@ -322,7 +322,7 @@ func (s *MartingaleStrategy) enterLong(currentPrice float64) error {
 		utils.Logger.Error("Failed to place base order", zap.Error(err))
 		return err
 	}
-	
+
 	s.currentState = StatePlacingGrid
 	return nil
 }
@@ -331,32 +331,42 @@ func (s *MartingaleStrategy) placeGridOrders() {
 	// This should be async or robust
 	// 1. Calculate Grid Levels based on ATR
 	// 2. Batch Place Orders
-	
+
 	// Fetch current entry price (avg price)
 	pos, err := s.exchange.GetPosition()
 	if err != nil {
 		return
 	}
 	entryPrice, _ := strconv.ParseFloat(pos.EntryPrice, 64)
-	
+
 	// Pre-calculate ATRs for different timeframes
 	atr15m := s.fetchATR("15m")
 	atr30m := s.fetchATR("30m")
 	atr1h := s.fetchATR("1h")
 	atr4h := s.fetchATR("4h")
 	atr1d := s.fetchATR("1d")
-	
+
 	// If any ATR failed (0), fallback to entryPrice * 0.01
-	if atr15m == 0 { atr15m = entryPrice * 0.01 }
-	if atr30m == 0 { atr30m = entryPrice * 0.01 }
-	if atr1h == 0 { atr1h = entryPrice * 0.01 }
-	if atr4h == 0 { atr4h = entryPrice * 0.01 }
-	if atr1d == 0 { atr1d = entryPrice * 0.01 }
+	if atr15m == 0 {
+		atr15m = entryPrice * 0.01
+	}
+	if atr30m == 0 {
+		atr30m = entryPrice * 0.01
+	}
+	if atr1h == 0 {
+		atr1h = entryPrice * 0.01
+	}
+	if atr4h == 0 {
+		atr4h = entryPrice * 0.01
+	}
+	if atr1d == 0 {
+		atr1d = entryPrice * 0.01
+	}
 
 	// Calculate Unit Quantity (Fibonacci 1) based on MinNotional logic
 	// We need to know what "1 unit" is. It is the base order size (5U).
-	unitQty := utils.RoundUpToTickSize(MinNotional / entryPrice, s.stepSize)
-	
+	unitQty := utils.RoundUpToTickSize(MinNotional/entryPrice, s.stepSize)
+
 	utils.Logger.Info("Placing Grid Orders", zap.Float64("Entry", entryPrice), zap.Float64("ATR15m", atr15m), zap.Float64("UnitQty", unitQty))
 
 	// Define Multiplier Sequence (Piecewise Function)
@@ -373,7 +383,7 @@ func (s *MartingaleStrategy) placeGridOrders() {
 		atr4h,  // 8
 		atr1d,  // 9
 	}
-	
+
 	currentPriceLevel := entryPrice
 
 	for i := 1; i <= s.cfg.MaxSafetyOrders; i++ {
@@ -385,25 +395,25 @@ func (s *MartingaleStrategy) placeGridOrders() {
 			// Fallback to last known distance if config has more orders than we defined
 			stepDist = gridDistances[len(gridDistances)-1]
 		}
-		
+
 		price := currentPriceLevel - stepDist
 		currentPriceLevel = price // Update for next step (relative distance)
-		
+
 		// Ensure price precision
 		price = utils.RoundToTickSize(price, s.tickSize)
 		price = utils.ToFixed(price, s.pricePrecision) // Should align to tickSize really
-		
+
 		// Fibonacci Volume: Qty = UnitQty * Fib(i)
 		volMult := s.getFibonacci(i) // 1, 1, 2, 3...
 		qty := unitQty * float64(volMult)
-		
+
 		// Ensure MinNotional (5 USDT) at the LIMIT PRICE
 		// If Qty * Price < 5.0, Binance will reject.
 		// Since Price < EntryPrice, the original UnitQty (based on EntryPrice) might be insufficient.
 		if qty*price < MinNotional {
-			utils.Logger.Info("Adjusting Qty to meet MinNotional", 
-				zap.Int("index", i), 
-				zap.Float64("old_qty", qty), 
+			utils.Logger.Info("Adjusting Qty to meet MinNotional",
+				zap.Int("index", i),
+				zap.Float64("old_qty", qty),
 				zap.Float64("price", price),
 			)
 			qty = MinNotional / price
@@ -411,23 +421,23 @@ func (s *MartingaleStrategy) placeGridOrders() {
 
 		// Round qty to stepSize
 		qty = utils.RoundUpToTickSize(qty, s.stepSize)
-		
-		utils.Logger.Info("Placing Safety Order", 
+
+		utils.Logger.Info("Placing Safety Order",
 			zap.Int("index", i),
 			zap.Float64("price", price),
 			zap.Float64("qty", qty),
-			zap.Float64("dist_atr", mult),
+			zap.Float64("dist_atr", stepDist),
 		)
-		
+
 		_, err := s.exchange.PlaceOrder(futures.SideTypeBuy, futures.OrderTypeLimit, qty, price)
 		if err != nil {
 			utils.Logger.Error("Failed to place safety order", zap.Int("index", i), zap.Error(err))
 		}
-		
+
 		// Avoid hitting API rate limits
 		time.Sleep(200 * time.Millisecond)
 	}
-	
+
 	// Place Initial TP
 	s.updateTP()
 }
@@ -439,10 +449,10 @@ func (s *MartingaleStrategy) updateTP() {
 		utils.Logger.Error("Failed to get position for TP update", zap.Error(err))
 		return
 	}
-	
+
 	avgPrice, _ := strconv.ParseFloat(pos.EntryPrice, 64)
 	amt, _ := strconv.ParseFloat(pos.PositionAmt, 64)
-	
+
 	// If position is closed, we don't need a TP
 	if math.Abs(amt) == 0 {
 		s.mu.Lock()
@@ -450,7 +460,7 @@ func (s *MartingaleStrategy) updateTP() {
 		s.mu.Unlock()
 		return
 	}
-	
+
 	s.mu.RLock()
 	// Safety check: if state is IDLE, don't update TP (cycle finished)
 	if s.currentState == StateIdle {
@@ -464,12 +474,9 @@ func (s *MartingaleStrategy) updateTP() {
 	}
 	oldTPID := s.currentTPOrderID
 	s.mu.RUnlock()
-	
-	// 2. Calculate TP Price: Avg + ATR(15m) * 0.8
-	// User said "Stop profit set 15 minutes ATR stop profit", usually means 1.0 * ATR unless specified.
-	// Update: User requested 0.8 * 15m ATR
-	tpPrice := avgPrice + (atr15m * 0.8)
-	
+
+	tpPrice := avgPrice + atr15m
+
 	// 3. Cancel old TP
 	if oldTPID != 0 {
 		utils.Logger.Info("Cancelling old TP", zap.Int64("id", oldTPID))
@@ -477,16 +484,16 @@ func (s *MartingaleStrategy) updateTP() {
 			utils.Logger.Warn("Failed to cancel old TP (might be filled or already canceled)", zap.Error(err))
 		}
 	}
-	
+
 	// 4. Place new TP
 	// TP Qty = Full Position
 	// Round Price to TickSize
 	tpPrice = utils.RoundToTickSize(tpPrice, s.tickSize)
 	// Double check with precision just in case
 	tpPrice = utils.ToFixed(tpPrice, s.pricePrecision)
-	
+
 	utils.Logger.Info("Updating TP", zap.Float64("Price", tpPrice), zap.Float64("Qty", amt))
-	
+
 	resp, err := s.exchange.PlaceOrder(futures.SideTypeSell, futures.OrderTypeLimit, math.Abs(amt), tpPrice)
 	if err != nil {
 		utils.Logger.Error("Failed to place TP order", zap.Error(err))
@@ -518,7 +525,7 @@ func (s *MartingaleStrategy) fetchATR(interval string) float64 {
 		utils.Logger.Error("Failed to get klines", zap.String("interval", interval), zap.Error(err))
 		return 0
 	}
-	
+
 	var highs, lows, closes []float64
 	for _, k := range klines {
 		h, _ := strconv.ParseFloat(k.High, 64)
@@ -528,7 +535,7 @@ func (s *MartingaleStrategy) fetchATR(interval string) float64 {
 		lows = append(lows, l)
 		closes = append(closes, c)
 	}
-	
+
 	return utils.CalculateATR(highs, lows, closes, s.cfg.AtrPeriod)
 }
 
