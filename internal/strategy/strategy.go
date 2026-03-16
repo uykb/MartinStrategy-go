@@ -285,7 +285,7 @@ func (s *MartingaleStrategy) handleOrderUpdate(ctx context.Context, event core.E
 
 			s.exchange.CancelAllOrders()
 			// Wait a bit before next cycle
-			time.Sleep(5 * time.Second)
+			time.Sleep(10 * time.Second)
 		}
 	}
 	return nil
