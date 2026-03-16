@@ -42,10 +42,8 @@ exchange:
   symbol: "HYPEUSDT"
 
 strategy:
-  base_order_size: 100.0
-  safety_order_size: 100.0
   max_safety_orders: 5
-  target_profit: 0.01
+  atr_period: 14
 ```
 
 ### 2. 运行 (Docker)

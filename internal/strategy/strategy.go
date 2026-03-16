@@ -346,7 +346,9 @@ func (s *MartingaleStrategy) placeGridOrders() {
 	atr4h := s.fetchATR("4h")
 	atr6h := s.fetchATR("6h")
 	atr8h := s.fetchATR("8h")
-	
+	atr12h := s.fetchATR("12h")
+	atr1d := s.fetchATR("1d")
+
 	// If any ATR failed (0), fallback to entryPrice * 0.01
 	if atr30m == 0 {
 		atr30m = entryPrice * 0.01
@@ -366,6 +368,12 @@ func (s *MartingaleStrategy) placeGridOrders() {
 	if atr8h == 0 {
 		atr8h = entryPrice * 0.01
 	}
+	if atr12h == 0 {
+		atr12h = entryPrice * 0.01
+	}
+	if atr1d == 0 {
+		atr1d = entryPrice * 0.01
+	}
 
 	// Calculate Unit Quantity (Fibonacci 1) based on MinNotional logic
 	// We need to know what "1 unit" is. It is the base order size (5U).
@@ -374,18 +382,18 @@ func (s *MartingaleStrategy) placeGridOrders() {
 	utils.Logger.Info("Placing Grid Orders", zap.Float64("Entry", entryPrice), zap.Float64("ATR30m", atr30m), zap.Float64("UnitQty", unitQty))
 
 	// Define Multiplier Sequence (Piecewise Function)
-	// 1: 30m, 2: 30m, 3: 1h, 4: 1h, 5: 2h, 6: 2h, 7: 4h, 8: 6h, 9: 8h
+	// 1: 30m, 2: 30m, 3: 1h, 4: 2h, 5: 4h, 6: 6h, 7: 8h, 8: 12h, 9: 1D
 	// Distances are relative to previous order
 	gridDistances := []float64{
 		atr30m, // 1
 		atr30m, // 2
 		atr1h,  // 3
-		atr1h,  // 4
-		atr2h,  // 5
-		atr2h,  // 6
-		atr4h,  // 7
-		atr6h,  // 8
-		atr8h,  // 9
+		atr2h,  // 4
+		atr4h,  // 5
+		atr6h,  // 6
+		atr8h,  // 7
+		atr12h, // 8
+		atr1d,  // 9
 	}
 
 	currentPriceLevel := entryPrice

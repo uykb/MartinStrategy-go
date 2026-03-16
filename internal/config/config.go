@@ -14,21 +14,15 @@ type Config struct {
 }
 
 type ExchangeConfig struct {
-	ApiKey    string `mapstructure:"api_key"`
-	ApiSecret string `mapstructure:"api_secret"`
-	Symbol    string `mapstructure:"symbol"`
+	ApiKey     string `mapstructure:"api_key"`
+	ApiSecret  string `mapstructure:"api_secret"`
+	Symbol     string `mapstructure:"symbol"`
 	UseTestnet bool   `mapstructure:"use_testnet"`
 }
 
 type StrategyConfig struct {
-	BaseOrderSize           float64 `mapstructure:"base_order_size"`
-	SafetyOrderSize         float64 `mapstructure:"safety_order_size"`
-	MaxSafetyOrders         int     `mapstructure:"max_safety_orders"`
-	VolumeScale             float64 `mapstructure:"volume_scale"` // Martingale multiplier
-	SafetyOrderStepScale    float64 `mapstructure:"step_scale"`   // Grid step multiplier
-	TargetProfit            float64 `mapstructure:"target_profit"`
-	AtrPeriod               int     `mapstructure:"atr_period"`
-	AtrMultiplier           float64 `mapstructure:"atr_multiplier"` // Grid spacing = ATR * Multiplier
+	MaxSafetyOrders int `mapstructure:"max_safety_orders"`
+	AtrPeriod       int `mapstructure:"atr_period"`
 }
 
 type StorageConfig struct {
@@ -45,7 +39,7 @@ type LogConfig struct {
 func LoadConfig(path string) (*Config, error) {
 	viper.SetConfigFile(path)
 	viper.SetConfigType("yaml")
-	
+
 	// Environment variables
 	viper.SetEnvPrefix("MARTIN")
 	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
