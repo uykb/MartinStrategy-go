@@ -50,6 +50,14 @@ type MartingaleStrategy struct {
 	minQty            float64
 	stepSize          float64 // For quantity
 	tickSize          float64 // For price
+
+	// 防重入锁
+	gridMu sync.Mutex // placeGridOrders 防并发
+	tpMu   sync.Mutex // updateTP 防并发
+
+	// 监控计数器
+	gridSkipCount int64 // placeGridOrders 跳过次数
+	tpSkipCount   int64 // updateTP 跳过次数
 }
 
 func NewMartingaleStrategy(cfg *config.StrategyConfig, ex *exchange.BinanceClient, st *storage.Database, bus *core.EventBus) *MartingaleStrategy {
@@ -217,18 +225,23 @@ func (s *MartingaleStrategy) handleTick(ctx context.Context, event core.Event) e
 		return fmt.Errorf("invalid tick data")
 	}
 
+	// 原子状态检查
 	s.mu.Lock()
-	defer s.mu.Unlock()
+	if s.currentState != StateIdle {
+		s.mu.Unlock()
+		return nil
+	}
+	s.currentState = StatePlacingGrid
+	s.mu.Unlock()
 
-	// Logic based on state
-	switch s.currentState {
-	case StateIdle:
-		// If idle, check if we should enter (e.g., immediate entry or signal)
-		// For simplicity, let's say we enter immediately if idle
-		return s.enterLong(price)
-	case StateInPosition:
-		// Monitor PnL, check if grid orders are in place (auditing)
-		// This is handled mostly by OrderUpdate, but we can do safety checks here
+	// 网络请求在锁外执行
+	if err := s.enterLong(price); err != nil {
+		// 下单失败，恢复状态
+		s.mu.Lock()
+		s.currentState = StateIdle
+		s.mu.Unlock()
+		utils.Logger.Error("enterLong failed, resetting to IDLE", zap.Error(err))
+		return err
 	}
 	return nil
 }
@@ -262,7 +275,9 @@ func (s *MartingaleStrategy) handleOrderUpdate(ctx context.Context, event core.E
 
 			if prevState == StateIdle || prevState == StatePlacingGrid {
 				// Base order filled -> Place Grid
-				go s.placeGridOrders()
+				// Get execution price from order event to avoid race condition with position API
+				execPrice, _ := strconv.ParseFloat(order.AveragePrice, 64)
+				go s.placeGridOrders(execPrice)
 			} else {
 				// Safety order filled -> Update TP
 				utils.Logger.Info("Safety Order Filled. Re-calculating TP.")
@@ -296,7 +311,7 @@ func (s *MartingaleStrategy) handleOrderUpdate(ctx context.Context, event core.E
 func (s *MartingaleStrategy) enterLong(currentPrice float64) error {
 	utils.Logger.Info("Entering Long Position...")
 
-	// Update ATR before entry
+	// Update ATR before entry (network call, no lock held)
 	s.updateATR()
 
 	// Calculate Base Quantity
@@ -323,21 +338,49 @@ func (s *MartingaleStrategy) enterLong(currentPrice float64) error {
 		return err
 	}
 
-	s.currentState = StatePlacingGrid
+	// 状态已在 handleTick 中设置为 StatePlacingGrid
 	return nil
 }
 
-func (s *MartingaleStrategy) placeGridOrders() {
+func(s *MartingaleStrategy) placeGridOrders(execPrice float64) {
+	// 防并发：如果已有实例在执行则跳过
+	if !s.gridMu.TryLock() {
+		s.mu.Lock()
+		s.gridSkipCount++
+		skipCount := s.gridSkipCount
+		s.mu.Unlock()
+		utils.Logger.Warn("placeGridOrders skipped: already running",
+			zap.Int64("skip_count", skipCount))
+		return
+	}
+	defer s.gridMu.Unlock()
+
 	// This should be async or robust
 	// 1. Calculate Grid Levels based on ATR
 	// 2. Batch Place Orders
 
-	// Fetch current entry price (avg price)
-	pos, err := s.exchange.GetPosition()
-	if err != nil {
+	var entryPrice float64
+
+	// Use execution price from order event if available (avoids race condition)
+	if execPrice > 0 {
+		entryPrice = execPrice
+		utils.Logger.Info("Using execution price from order event", zap.Float64("entryPrice", entryPrice))
+	} else {
+		// Fallback: Fetch from position API
+		pos, err := s.exchange.GetPosition()
+		if err != nil {
+			utils.Logger.Error("Failed to get position for grid orders", zap.Error(err))
+			return
+		}
+		entryPrice, _ = strconv.ParseFloat(pos.EntryPrice, 64)
+		utils.Logger.Info("Using entry price from position API", zap.Float64("entryPrice", entryPrice))
+	}
+
+	// Validate entry price
+	if entryPrice <= 0 {
+		utils.Logger.Error("Invalid entry price, cannot place grid orders", zap.Float64("entryPrice", entryPrice))
 		return
 	}
-	entryPrice, _ := strconv.ParseFloat(pos.EntryPrice, 64)
 
 	// Pre-calculate ATRs for different timeframes
 	atr30m := s.fetchATR("30m")
@@ -455,6 +498,18 @@ func (s *MartingaleStrategy) placeGridOrders() {
 }
 
 func (s *MartingaleStrategy) updateTP() {
+	// 防并发：如果已有实例在执行则跳过
+	if !s.tpMu.TryLock() {
+		s.mu.Lock()
+		s.tpSkipCount++
+		skipCount := s.tpSkipCount
+		s.mu.Unlock()
+		utils.Logger.Warn("updateTP skipped: already running",
+			zap.Int64("skip_count", skipCount))
+		return
+	}
+	defer s.tpMu.Unlock()
+
 	// 1. Get updated position
 	pos, err := s.exchange.GetPosition()
 	if err != nil {
