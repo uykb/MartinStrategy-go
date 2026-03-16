@@ -4,8 +4,8 @@ import (
 	"context"
 	"time"
 
+	"github.com/glebarez/sqlite"
 	"github.com/redis/go-redis/v9"
-	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )
 
@@ -16,9 +16,9 @@ type Database struct {
 
 // Order model for persisting state
 type Order struct {
-	ID        uint      `gorm:"primaryKey"`
-	Symbol    string    `gorm:"index"`
-	OrderID   int64     `gorm:"uniqueIndex"`
+	ID        uint   `gorm:"primaryKey"`
+	Symbol    string `gorm:"index"`
+	OrderID   int64  `gorm:"uniqueIndex"`
 	Side      string
 	Type      string
 	Price     float64
@@ -30,7 +30,7 @@ type Order struct {
 
 // BotState stores the current state of the FSM
 type BotState struct {
-	ID           uint      `gorm:"primaryKey"`
+	ID           uint `gorm:"primaryKey"`
 	CurrentState string
 	PositionSize float64
 	AvgPrice     float64
