@@ -325,6 +325,7 @@ func (s *MartingaleStrategy) enterLong(currentPrice float64) error {
 	}
 
 	baseQty := unitQty * 2.0
+	baseQty = utils.ToFixed(baseQty, s.quantityPrecision)
 
 	utils.Logger.Info("Calculated Base Qty",
 		zap.Float64("price", currentPrice),
@@ -342,7 +343,7 @@ func (s *MartingaleStrategy) enterLong(currentPrice float64) error {
 	return nil
 }
 
-func(s *MartingaleStrategy) placeGridOrders(execPrice float64) {
+func (s *MartingaleStrategy) placeGridOrders(execPrice float64) {
 	// 防并发：如果已有实例在执行则跳过
 	if !s.gridMu.TryLock() {
 		s.mu.Lock()
@@ -476,6 +477,7 @@ func(s *MartingaleStrategy) placeGridOrders(execPrice float64) {
 
 		// Round qty to stepSize
 		qty = utils.RoundUpToTickSize(qty, s.stepSize)
+		qty = utils.ToFixed(qty, s.quantityPrecision)
 
 		utils.Logger.Info("Placing Safety Order",
 			zap.Int("index", i),
@@ -559,9 +561,12 @@ func (s *MartingaleStrategy) updateTP() {
 	// Double check with precision just in case
 	tpPrice = utils.ToFixed(tpPrice, s.pricePrecision)
 
-	utils.Logger.Info("Updating TP", zap.Float64("Price", tpPrice), zap.Float64("Qty", amt))
+	// Round Qty to precision
+	tpQty := utils.ToFixed(math.Abs(amt), s.quantityPrecision)
 
-	resp, err := s.exchange.PlaceOrder(futures.SideTypeSell, futures.OrderTypeLimit, math.Abs(amt), tpPrice)
+	utils.Logger.Info("Updating TP", zap.Float64("Price", tpPrice), zap.Float64("Qty", tpQty))
+
+	resp, err := s.exchange.PlaceOrder(futures.SideTypeSell, futures.OrderTypeLimit, tpQty, tpPrice)
 	if err != nil {
 		utils.Logger.Error("Failed to place TP order", zap.Error(err))
 		return
