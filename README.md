@@ -1,6 +1,6 @@
 # MartinStrategy
 
-基于 Go 语言的高性能马丁格尔策略交易机器人，采用 **事件驱动 + 有限状态机 (ED-FSM)** 架构，专为 BinanceFutures 设计。
+基于 Go 语言的高性能马丁格尔策略交易机器人，采用 **事件驱动 + 有限状态机 (ED-FSM)** 架构，专为 Lighter 设计。
 
 ## 特性
 
@@ -20,7 +20,7 @@
 ├── internal/
 │   ├── config/            # 配置管理 (Viper)
 │   ├── core/               # 核心组件 (EventBus)
-│   ├── exchange/           # 交易所适配 (Binance WebSocket)
+│   ├── exchange/           # 交易所适配 (Lighter HTTP)
 │   ├── strategy/           # 策略逻辑 (Martingale FSM)
 │   ├── storage/            # 数据存储 (SQLite, Redis)
 │   └── utils/              # 工具库 (Logger, ATR)
@@ -67,10 +67,12 @@ go run cmd/bot/main.go
 
 ```yaml
 exchange:
-  api_key: ""              # Binance API Key
-  api_secret: ""           # Binance API Secret
-  symbol: "HYPEUSDT"       # 交易对
-  use_testnet: false       # 是否使用测试网
+  symbol: "HYPEUSDC"       # 交易对
+  private_key: ""          # Lighter 私钥 (hex格式)
+  chain_id: 1              # Lighter 链ID
+  api_url: "https://api.lighter.xyz"  # Lighter API地址
+  account_index: 1         # 账户索引
+  api_key_index: 0         # API密钥索引
 
 strategy:
   max_safety_orders: 9     # 最大加仓层数 (Fibonacci)
@@ -91,9 +93,10 @@ log:
 支持通过环境变量覆盖配置，前缀为 `MARTIN_`：
 
 ```bash
-export MARTIN_EXCHANGE_API_KEY="your_api_key"
-export MARTIN_EXCHANGE_API_SECRET="your_api_secret"
-export MARTIN_EXCHANGE_SYMBOL="BTCUSDT"
+export MARTIN_EXCHANGE_SYMBOL="HYPEUSDC"
+export MARTIN_EXCHANGE_PRIVATE_KEY="your_private_key"
+export MARTIN_EXCHANGE_CHAIN_ID="1"
+export MARTIN_EXCHANGE_API_URL="https://api.lighter.xyz"
 ```
 
 ## 策略逻辑
@@ -129,21 +132,22 @@ export MARTIN_EXCHANGE_SYMBOL="BTCUSDT"
 
 ### Fibonacci 加仓倍数
 
-| 层数 | 倍数 | 数量 (假设unit=1) |
+| 层数 | 倍数 | 数量 (假设底仓=1) |
 |------|------|-------------------|
+| 底仓 | 1    | 1                 |
 | 1    | 1    | 1                 |
-| 2    | 1    | 1                 |
-| 3    | 2    | 2                 |
-| 4    | 3| 3                 |
-| 5    | 5    | 5                 |
-| 6    | 8    | 8                 |
-| 7    | 13   | 13                |
-| 8    | 21   | 21                |
-| 9    | 34   | 34                |
+| 2    | 2    | 2                 |
+| 3    | 3    | 3                 |
+| 4    | 5    | 5                 |
+| 5    | 8    | 8                 |
+| 6    | 13   | 13                |
+| 7    | 21   | 21                |
+| 8    | 34   | 34                |
+| 9    | 55   | 55                |
 
 ## 并发安全机制
 
-为防止 WebSocket消息重复或并发执行导致的问题，已实现以下保护：
+为防止并发执行导致的问题，已实现以下保护：
 
 ### 1. 防重入锁
 
@@ -217,15 +221,15 @@ go s.placeGridOrders(execPrice)
 
 -马丁格尔策略在单边行情中风险极高
 - 建议设置止损或限制最大持仓
-- 请确保API Key 有合约交易权限
-- 建议先测试网验证策略
+- 请确保已正确配置 Lighter API 私钥
+- 建议先小额测试验证策略
 
 ## 技术栈
 
 | 组件 | 技术 |
 |------|------|
 | 语言 | Go 1.21+ |
-| 交易所 | Binance Futures WebSocket |
+| 交易所 | Lighter HTTP |
 | 存储 | SQLite / Redis |
 | 配置 | Viper |
 | 日志 | Zap (结构化) |

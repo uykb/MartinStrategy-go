@@ -46,10 +46,13 @@ func main() {
 	bus.Start()
 	defer bus.Stop()
 
-	// 5. Exchange
-	ex := exchange.NewBinanceClient(&cfg.Exchange, bus)
+	// 5. Exchange (Lighter)
+	ex, err := exchange.NewLighterClient(&cfg.Exchange, bus)
+	if err != nil {
+		utils.Logger.Fatal("Failed to create Lighter client", zap.Error(err))
+	}
 	if err := ex.StartWS(); err != nil {
-		utils.Logger.Fatal("Failed to start exchange WS", zap.Error(err))
+		utils.Logger.Fatal("Failed to start exchange polling", zap.Error(err))
 	}
 
 	// 6. Strategy

@@ -41,7 +41,7 @@ import (
     "fmt"
     "sync"
 
-    "github.com/adshao/go-binance/v2/futures"
+    "github.com/elliottech/lighter-go/client"
     "go.uber.org/zap"
 
     "github.com/uykb/MartinStrategy/internal/config"
@@ -60,7 +60,7 @@ import (
 - Struct tags use `mapstructure` for config, `json`/`gorm` for storage models
 
 ### Naming Conventions
-- **Exported**: PascalCase (e.g., `EventBus`, `NewBinanceClient`)
+- **Exported**: PascalCase (e.g., `EventBus`, `NewLighterClient`)
 - **Unexported**: camelCase (e.g., `currentState`, `handleTick`)
 - **Constants**: PascalCase for exported, camelCase for unexported (e.g., `StateIdle`, `minNotional`)
 - **Interfaces**: `-er` suffix (e.g., `EventHandler`)
@@ -116,13 +116,13 @@ if err := doNetworkCall(); err != nil {
 |---------|---------|
 | `internal/config` | Viper-based config loading from YAML/env |
 | `internal/core` | Event bus with Pub/Sub pattern |
-| `internal/exchange` | Binance Futures WebSocket + REST client |
+| `internal/exchange` | Lighter Exchange HTTP client + polling |
 | `internal/strategy` | Martingale FSM (states: IDLE → PLACING_GRID → IN_POSITION) |
 | `internal/storage` | GORM + SQLite, Redis for locking |
 | `internal/utils` | Indicators (ATR), rounding, Zap logger |
 
 ## Key Constants
-- `MinNotional = 50.0` - Minimum USDT order value for Binance Futures
+- `MinNotional = 50.0` - Minimum USDC order value for Lighter
 - Event queue buffer: 1000
 - Grid levels: 9 max (Fibonacci scaled)
 

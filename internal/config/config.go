@@ -18,6 +18,13 @@ type ExchangeConfig struct {
 	ApiSecret  string `mapstructure:"api_secret"`
 	Symbol     string `mapstructure:"symbol"`
 	UseTestnet bool   `mapstructure:"use_testnet"`
+
+	// Lighter specific
+	PrivateKey   string `mapstructure:"private_key"`
+	ChainID      uint32 `mapstructure:"chain_id"`
+	APIURL       string `mapstructure:"api_url"`
+	AccountIndex int64  `mapstructure:"account_index"`
+	APIKeyIndex  uint8  `mapstructure:"api_key_index"`
 }
 
 type StrategyConfig struct {

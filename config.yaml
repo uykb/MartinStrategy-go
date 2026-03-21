@@ -1,7 +1,15 @@
 exchange:
+  # Lighter Exchange Configuration
+  symbol: "HYPEUSDC"
+  private_key: ""           # Required: Lighter private key (hex format)
+  chain_id: 1               # Lighter chain ID (1 for mainnet)
+  api_url: "https://api.lighter.xyz"  # Lighter API endpoint
+  account_index: 1          # Account index (default: 1)
+  api_key_index: 0          # API key index (default: 0)
+  
+  # Legacy Binance config (not used)
   api_key: ""
   api_secret: ""
-  symbol: "HYPEUSDT"
   use_testnet: false
 
 strategy:

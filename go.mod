@@ -3,7 +3,7 @@ module github.com/uykb/MartinStrategy
 go 1.25.4
 
 require (
-	github.com/adshao/go-binance/v2 v2.8.10
+	github.com/elliottech/lighter-go v1.0.4
 	github.com/glebarez/sqlite v1.11.0
 	github.com/markcheno/go-talib v0.0.0-20250114000313-ec55a20c902f
 	github.com/redis/go-redis/v9 v9.18.0

@@ -8,7 +8,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/adshao/go-binance/v2/futures"
 	"github.com/uykb/MartinStrategy/internal/config"
 	"github.com/uykb/MartinStrategy/internal/core"
 	"github.com/uykb/MartinStrategy/internal/exchange"
@@ -27,19 +26,19 @@ const (
 	StateClosing     State = "CLOSING"
 )
 
-// MinNotional is the minimum order value in USDT for Binance Futures
+// MinNotional is the minimum order value in USDC for Lighter
 const MinNotional = 50.0
 
 type MartingaleStrategy struct {
 	cfg      *config.StrategyConfig
-	exchange *exchange.BinanceClient
+	exchange *exchange.LighterClient
 	storage  *storage.Database
 	bus      *core.EventBus
 
 	mu               sync.RWMutex
 	currentState     State
-	position         *futures.AccountPosition
-	activeOrders     map[int64]*futures.Order // Local cache of active orders
+	position         *exchange.Position
+	activeOrders     map[int64]*exchange.Order // Local cache of active orders
 	currentTPOrderID int64
 
 	currentATR float64
@@ -60,14 +59,14 @@ type MartingaleStrategy struct {
 	tpSkipCount   int64 // updateTP 跳过次数
 }
 
-func NewMartingaleStrategy(cfg *config.StrategyConfig, ex *exchange.BinanceClient, st *storage.Database, bus *core.EventBus) *MartingaleStrategy {
+func NewMartingaleStrategy(cfg *config.StrategyConfig, ex *exchange.LighterClient, st *storage.Database, bus *core.EventBus) *MartingaleStrategy {
 	return &MartingaleStrategy{
 		cfg:          cfg,
 		exchange:     ex,
 		storage:      st,
 		bus:          bus,
 		currentState: StateIdle,
-		activeOrders: make(map[int64]*futures.Order),
+		activeOrders: make(map[int64]*exchange.Order),
 	}
 }
 
@@ -92,11 +91,9 @@ func (s *MartingaleStrategy) initSymbolInfo() error {
 	}
 
 	symbol := s.exchange.GetSymbol()
-	var symbolInfo futures.Symbol
 	found := false
 	for _, sym := range info.Symbols {
 		if sym.Symbol == symbol {
-			symbolInfo = sym
 			found = true
 			break
 		}
@@ -105,30 +102,13 @@ func (s *MartingaleStrategy) initSymbolInfo() error {
 		return fmt.Errorf("symbol %s not found in exchange info", symbol)
 	}
 
-	s.quantityPrecision = symbolInfo.QuantityPrecision
-	s.pricePrecision = symbolInfo.PricePrecision
-
-	// Parse Filters
-	for _, filter := range symbolInfo.Filters {
-		filterType, ok := filter["filterType"].(string)
-		if !ok {
-			continue
-		}
-
-		switch filterType {
-		case "LOT_SIZE":
-			if stepSize, ok := filter["stepSize"].(string); ok {
-				s.stepSize, _ = strconv.ParseFloat(stepSize, 64)
-			}
-			if minQty, ok := filter["minQty"].(string); ok {
-				s.minQty, _ = strconv.ParseFloat(minQty, 64)
-			}
-		case "PRICE_FILTER":
-			if tickSize, ok := filter["tickSize"].(string); ok {
-				s.tickSize, _ = strconv.ParseFloat(tickSize, 64)
-			}
-		}
-	}
+	// Lighter doesn't provide precision info in the same way
+	// Using reasonable defaults
+	s.quantityPrecision = 8
+	s.pricePrecision = 8
+	s.stepSize = 0.00000001
+	s.tickSize = 0.01
+	s.minQty = 0.0001
 
 	utils.Logger.Info("Symbol Info Initialized",
 		zap.String("symbol", symbol),
@@ -179,7 +159,7 @@ func (s *MartingaleStrategy) syncState() {
 			// Simple check: do we have any Sell Limit orders?
 			// In a complex bot, we'd check ClientOrderID or Metadata.
 			for _, o := range orders {
-				if o.Side == futures.SideTypeSell && o.Type == futures.OrderTypeLimit {
+				if o.Side == "SELL" && o.Type == "LIMIT" {
 					hasTP = true
 					s.currentTPOrderID = o.OrderID
 					utils.Logger.Info("Found existing TP order", zap.Int64("id", o.OrderID))
@@ -247,26 +227,22 @@ func (s *MartingaleStrategy) handleTick(ctx context.Context, event core.Event) e
 }
 
 func (s *MartingaleStrategy) handleOrderUpdate(ctx context.Context, event core.Event) error {
-	// The event data from binance.go is *futures.WsOrderTradeUpdate
-	// Let's assert it correctly
-	order, ok := event.Data.(*futures.WsOrderTradeUpdate)
+	// The event data from lighter.go is *exchange.Order
+	order, ok := event.Data.(*exchange.Order)
 	if !ok {
-		// Try value type if pointer assertion fails, though binance.go sends pointer
-		// Or maybe it's wrapped in something else?
-		// Let's debug what we got
-		return fmt.Errorf("invalid order update data: expected *futures.WsOrderTradeUpdate, got %T", event.Data)
+		return fmt.Errorf("invalid order update data: expected *exchange.Order, got %T", event.Data)
 	}
 
 	utils.Logger.Info("Order Update Received",
-		zap.Int64("id", order.ID),
-		zap.String("status", string(order.Status)),
-		zap.String("type", string(order.Type)),
+		zap.Int64("id", order.OrderID),
+		zap.String("status", order.Status),
+		zap.String("type", order.Type),
 	)
 
-	if order.Status == futures.OrderStatusTypeFilled {
-		if order.Side == futures.SideTypeBuy {
+	if order.Status == "FILLED" {
+		if order.Side == "BUY" {
 			// Buy Order Filled (Base or Safety)
-			utils.Logger.Info("Buy Order Filled", zap.String("type", string(order.Type)))
+			utils.Logger.Info("Buy Order Filled", zap.String("type", order.Type))
 
 			s.mu.Lock()
 			prevState := s.currentState
@@ -276,21 +252,21 @@ func (s *MartingaleStrategy) handleOrderUpdate(ctx context.Context, event core.E
 			if prevState == StateIdle || prevState == StatePlacingGrid {
 				// Base order filled -> Place Grid
 				// Get execution price from order event to avoid race condition with position API
-				execPrice, _ := strconv.ParseFloat(order.AveragePrice, 64)
+				execPrice, _ := strconv.ParseFloat(order.Price, 64)
 				go s.placeGridOrders(execPrice)
 			} else {
 				// Safety order filled -> Update TP
 				utils.Logger.Info("Safety Order Filled. Re-calculating TP.")
 				go s.updateTP()
 			}
-		} else if order.Side == futures.SideTypeSell {
+		} else if order.Side == "SELL" {
 			// Sell Order Filled (TP, Manual, or Stop)
 			// Assume any sell fill in Long strategy means closing/reducing position
 			// For simplicity in Martingale, we assume full close on TP
 
 			utils.Logger.Info("Sell Order Filled (TP/Manual). Resetting to IDLE.",
-				zap.String("type", string(order.Type)),
-				zap.String("status", string(order.Status)),
+				zap.String("type", order.Type),
+				zap.String("status", order.Status),
 			)
 
 			s.mu.Lock()
@@ -315,7 +291,7 @@ func (s *MartingaleStrategy) enterLong(currentPrice float64) error {
 	s.updateATR()
 
 	// Calculate Base Quantity
-	// Logic: Unit = MinNotional (5 USDT) / Price -> rounded UP to stepSize
+	// Logic: Unit = MinNotional (5 USDC) / Price -> rounded UP to stepSize
 	// Base Order = 1 * Unit (1倍)
 	unitQtyRaw := MinNotional / currentPrice
 	unitQty := utils.RoundUpToTickSize(unitQtyRaw, s.stepSize)
@@ -333,7 +309,7 @@ func (s *MartingaleStrategy) enterLong(currentPrice float64) error {
 		zap.Float64("base_qty", baseQty),
 	)
 
-	_, err := s.exchange.PlaceOrder(futures.SideTypeBuy, futures.OrderTypeMarket, baseQty, 0)
+	_, err := s.exchange.PlaceOrder("BUY", "MARKET", baseQty, 0)
 	if err != nil {
 		utils.Logger.Error("Failed to place base order", zap.Error(err))
 		return err
@@ -463,7 +439,7 @@ func (s *MartingaleStrategy) placeGridOrders(execPrice float64) {
 		volMult := s.getFibonacci(i) // 1, 2, 3, 5...
 		qty := unitQty * float64(volMult)
 
-		// Ensure MinNotional (5 USDT) at the LIMIT PRICE
+		// Ensure MinNotional (5 USDC) at the LIMIT PRICE
 		// If Qty * Price < 5.0, Binance will reject.
 		// Since Price < EntryPrice, the original UnitQty (based on EntryPrice) might be insufficient.
 		if qty*price < MinNotional {
@@ -486,7 +462,7 @@ func (s *MartingaleStrategy) placeGridOrders(execPrice float64) {
 			zap.Float64("dist_atr", stepDist),
 		)
 
-		_, err := s.exchange.PlaceOrder(futures.SideTypeBuy, futures.OrderTypeLimit, qty, price)
+		_, err := s.exchange.PlaceOrder("BUY", "LIMIT", qty, price)
 		if err != nil {
 			utils.Logger.Error("Failed to place safety order", zap.Int("index", i), zap.Error(err))
 		}
@@ -566,7 +542,7 @@ func (s *MartingaleStrategy) updateTP() {
 
 	utils.Logger.Info("Updating TP", zap.Float64("Price", tpPrice), zap.Float64("Qty", tpQty))
 
-	resp, err := s.exchange.PlaceOrder(futures.SideTypeSell, futures.OrderTypeLimit, tpQty, tpPrice)
+	resp, err := s.exchange.PlaceOrder("SELL", "LIMIT", tpQty, tpPrice)
 	if err != nil {
 		utils.Logger.Error("Failed to place TP order", zap.Error(err))
 		return
@@ -600,12 +576,9 @@ func (s *MartingaleStrategy) fetchATR(interval string) float64 {
 
 	var highs, lows, closes []float64
 	for _, k := range klines {
-		h, _ := strconv.ParseFloat(k.High, 64)
-		l, _ := strconv.ParseFloat(k.Low, 64)
-		c, _ := strconv.ParseFloat(k.Close, 64)
-		highs = append(highs, h)
-		lows = append(lows, l)
-		closes = append(closes, c)
+		highs = append(highs, k.High)
+		lows = append(lows, k.Low)
+		closes = append(closes, k.Close)
 	}
 
 	return utils.CalculateATR(highs, lows, closes, s.cfg.AtrPeriod)
