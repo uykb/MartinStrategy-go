@@ -316,7 +316,7 @@ func (s *MartingaleStrategy) enterLong(currentPrice float64) error {
 
 	// Calculate Base Quantity
 	// Logic: Unit = MinNotional (5 USDT) / Price -> rounded UP to stepSize
-	// Base Order = 2 * Unit
+	// Base Order = 1 * Unit (1倍)
 	unitQtyRaw := MinNotional / currentPrice
 	unitQty := utils.RoundUpToTickSize(unitQtyRaw, s.stepSize)
 
@@ -324,7 +324,7 @@ func (s *MartingaleStrategy) enterLong(currentPrice float64) error {
 		unitQty = s.minQty
 	}
 
-	baseQty := unitQty * 2.0
+	baseQty := unitQty * 1.0
 	baseQty = utils.ToFixed(baseQty, s.quantityPrecision)
 
 	utils.Logger.Info("Calculated Base Qty",
@@ -460,7 +460,7 @@ func (s *MartingaleStrategy) placeGridOrders(execPrice float64) {
 		price = utils.ToFixed(price, s.pricePrecision) // Should align to tickSize really
 
 		// Fibonacci Volume: Qty = UnitQty * Fib(i)
-		volMult := s.getFibonacci(i) // 1, 1, 2, 3...
+		volMult := s.getFibonacci(i) // 1, 2, 3, 5...
 		qty := unitQty * float64(volMult)
 
 		// Ensure MinNotional (5 USDT) at the LIMIT PRICE
@@ -615,10 +615,13 @@ func (s *MartingaleStrategy) getFibonacci(n int) int {
 	if n <= 0 {
 		return 0
 	}
-	if n <= 2 {
+	if n == 1 {
 		return 1
 	}
-	a, b := 1, 1
+	if n == 2 {
+		return 2
+	}
+	a, b := 1, 2
 	for i := 3; i <= n; i++ {
 		a, b = b, a+b
 	}
