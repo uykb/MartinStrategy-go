@@ -26,9 +26,6 @@ const (
 	StateClosing     State = "CLOSING"
 )
 
-// MinNotional is the minimum order value in USDC for Lighter
-const MinNotional = 50.0
-
 type MartingaleStrategy struct {
 	cfg      *config.StrategyConfig
 	exchange *exchange.LighterClient
@@ -290,22 +287,14 @@ func (s *MartingaleStrategy) enterLong(currentPrice float64) error {
 	// Update ATR before entry (network call, no lock held)
 	s.updateATR()
 
-	// Calculate Base Quantity
-	// Logic: Unit = MinNotional (5 USDC) / Price -> rounded UP to stepSize
-	// Base Order = 1 * Unit (1倍)
-	unitQtyRaw := MinNotional / currentPrice
-	unitQty := utils.RoundUpToTickSize(unitQtyRaw, s.stepSize)
-
-	if unitQty < s.minQty {
-		unitQty = s.minQty
+	// Fixed Quantity Mode: Use configured base quantity directly
+	baseQty := s.cfg.BaseQty
+	if baseQty <= 0 {
+		baseQty = 0.5 // Default to 0.5 if not configured
 	}
 
-	baseQty := unitQty * 1.0
-	baseQty = utils.ToFixed(baseQty, s.quantityPrecision)
-
-	utils.Logger.Info("Calculated Base Qty",
+	utils.Logger.Info("Placing Base Order (Fixed Qty)",
 		zap.Float64("price", currentPrice),
-		zap.Float64("unit_qty", unitQty),
 		zap.Float64("base_qty", baseQty),
 	)
 
@@ -395,15 +384,20 @@ func (s *MartingaleStrategy) placeGridOrders(execPrice float64) {
 		atr1d = entryPrice * 0.01
 	}
 
-	// Calculate Unit Quantity (Fibonacci 1) based on MinNotional logic
-	// We need to know what "1 unit" is. It is the base order size (5U).
-	unitQty := utils.RoundUpToTickSize(MinNotional/entryPrice, s.stepSize)
+	// Fixed Quantity Mode: Use configured safety quantities directly
+	safetyQtys := s.cfg.SafetyQtys
+	if len(safetyQtys) == 0 {
+		// Default values if not configured: 0.5, 0.5, 1.0, 1.5, 2.5, 4.0, 6.5, 10.5, 17.0
+		safetyQtys = []float64{0.5, 0.5, 1.0, 1.5, 2.5, 4.0, 6.5, 10.5, 17.0}
+	}
 
-	utils.Logger.Info("Placing Grid Orders", zap.Float64("Entry", entryPrice), zap.Float64("ATR30m", atr30m), zap.Float64("UnitQty", unitQty))
+	utils.Logger.Info("Placing Grid Orders (Fixed Qty)",
+		zap.Float64("Entry", entryPrice),
+		zap.Float64("ATR30m", atr30m),
+		zap.Int("max_orders", s.cfg.MaxSafetyOrders),
+	)
 
-	// Define Multiplier Sequence (Piecewise Function)
-	// 1: 30m, 2: 30m, 3: 1h, 4: 2h, 5: 4h, 6: 6h, 7: 8h, 8: 12h, 9: 1D
-	// Distances are relative to previous order
+	// Define Grid Distance Multipliers (ATR based)
 	gridDistances := []float64{
 		atr30m, // 1
 		atr30m, // 2
@@ -424,36 +418,18 @@ func (s *MartingaleStrategy) placeGridOrders(execPrice float64) {
 		if i-1 < len(gridDistances) {
 			stepDist = gridDistances[i-1]
 		} else {
-			// Fallback to last known distance if config has more orders than we defined
 			stepDist = gridDistances[len(gridDistances)-1]
 		}
 
 		price := currentPriceLevel - stepDist
-		currentPriceLevel = price // Update for next step (relative distance)
+		currentPriceLevel = price
 
-		// Ensure price precision
-		price = utils.RoundToTickSize(price, s.tickSize)
-		price = utils.ToFixed(price, s.pricePrecision) // Should align to tickSize really
-
-		// Fibonacci Volume: Qty = UnitQty * Fib(i)
-		volMult := s.getFibonacci(i) // 1, 2, 3, 5...
-		qty := unitQty * float64(volMult)
-
-		// Ensure MinNotional (5 USDC) at the LIMIT PRICE
-		// If Qty * Price < 5.0, Binance will reject.
-		// Since Price < EntryPrice, the original UnitQty (based on EntryPrice) might be insufficient.
-		if qty*price < MinNotional {
-			utils.Logger.Info("Adjusting Qty to meet MinNotional",
-				zap.Int("index", i),
-				zap.Float64("old_qty", qty),
-				zap.Float64("price", price),
-			)
-			qty = MinNotional / price
+		// Get quantity for this level (use config or default)
+		qtyIndex := i - 1
+		if qtyIndex >= len(safetyQtys) {
+			qtyIndex = len(safetyQtys) - 1
 		}
-
-		// Round qty to stepSize
-		qty = utils.RoundUpToTickSize(qty, s.stepSize)
-		qty = utils.ToFixed(qty, s.quantityPrecision)
+		qty := safetyQtys[qtyIndex]
 
 		utils.Logger.Info("Placing Safety Order",
 			zap.Int("index", i),
@@ -582,21 +558,4 @@ func (s *MartingaleStrategy) fetchATR(interval string) float64 {
 	}
 
 	return utils.CalculateATR(highs, lows, closes, s.cfg.AtrPeriod)
-}
-
-func (s *MartingaleStrategy) getFibonacci(n int) int {
-	if n <= 0 {
-		return 0
-	}
-	if n == 1 {
-		return 1
-	}
-	if n == 2 {
-		return 2
-	}
-	a, b := 1, 2
-	for i := 3; i <= n; i++ {
-		a, b = b, a+b
-	}
-	return b
 }

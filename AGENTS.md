@@ -122,9 +122,9 @@ if err := doNetworkCall(); err != nil {
 | `internal/utils` | Indicators (ATR), rounding, Zap logger |
 
 ## Key Constants
-- `MinNotional = 50.0` - Minimum USDC order value for Lighter
 - Event queue buffer: 1000
-- Grid levels: 9 max (Fibonacci scaled)
+- Grid levels: 9 max (configurable quantities)
+- Fixed quantity mode: No value calculation, direct quantity configuration
 
 ## Adding Features
 

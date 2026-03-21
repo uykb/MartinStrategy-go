@@ -11,7 +11,15 @@ exchange:
   market_index: 0                     # Lighter market index (check Lighter API docs)
 
 strategy:
+  # Grid Settings
   max_safety_orders: 9
+
+  # Fixed Quantity Mode - Direct quantity configuration
+  # No value calculation, just place orders with specified quantities
+  base_qty: 0.5                          # Base position quantity (e.g., 0.5 HYPE)
+  safety_qtys: [0.5, 0.5, 1.0, 1.5, 2.5, 4.0, 6.5, 10.5, 17.0]  # Safety order quantities
+
+  # ATR Settings
   atr_period: 14
 
 storage:

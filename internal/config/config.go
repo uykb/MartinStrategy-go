@@ -27,8 +27,15 @@ type ExchangeConfig struct {
 }
 
 type StrategyConfig struct {
+	// Grid Settings
 	MaxSafetyOrders int `mapstructure:"max_safety_orders"`
-	AtrPeriod       int `mapstructure:"atr_period"`
+
+	// Fixed Quantity Mode
+	BaseQty        float64   `mapstructure:"base_qty"`        // 底仓数量 (e.g., 0.5 HYPE)
+	SafetyQtys     []float64 `mapstructure:"safety_qtys"`     // 每层加仓数量列表
+
+	// ATR Settings
+	AtrPeriod int `mapstructure:"atr_period"`
 }
 
 type StorageConfig struct {
