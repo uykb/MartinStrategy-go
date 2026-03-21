@@ -246,12 +246,6 @@ func (lc *LighterClient) PlaceOrder(side string, orderType string, quantity, pri
 		return nil, fmt.Errorf("failed to fill opts: %w", err)
 	}
 
-	// Convert side and type to lighter format
-	var isBuy bool
-	if side == "BUY" {
-		isBuy = true
-	}
-
 	// For Lighter, we need to use the HTTP client to submit the signed transaction
 	// The actual implementation depends on Lighter's API
 	// This is a simplified version
@@ -267,17 +261,13 @@ func (lc *LighterClient) PlaceOrder(side string, orderType string, quantity, pri
 
 	// Submit order via HTTP API
 	url := fmt.Sprintf("%s/v1/order", lc.cfg.APIURL)
-	reqBody, _ := json.Marshal(orderReq)
+	_ = url // URL will be used when implementing actual API call
+	_ = orderReq // Request body will be used when implementing actual API call
 
-	req, err := http.NewRequest("POST", url, nil)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Body = io.NopCloser(nil) // Will be set with actual body
-
-	// TODO: Sign the request with lighter signer
-	// This requires implementing the actual signing logic
+	// TODO: Implement actual Lighter API integration
+	// - Sign the request with lighter signer
+	// - Submit via HTTP client
+	// - Parse response
 
 	utils.Logger.Info("Placing order on Lighter",
 		zap.String("symbol", lc.cfg.Symbol),
