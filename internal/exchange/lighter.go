@@ -1,7 +1,6 @@
 package exchange
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
