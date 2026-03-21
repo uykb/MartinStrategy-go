@@ -14,18 +14,16 @@ type Config struct {
 }
 
 type ExchangeConfig struct {
-	ApiKey     string `mapstructure:"api_key"`
-	ApiSecret  string `mapstructure:"api_secret"`
+	// Lighter Exchange Configuration
 	Symbol     string `mapstructure:"symbol"`
-	UseTestnet bool   `mapstructure:"use_testnet"`
+	PrivateKey string `mapstructure:"private_key"`
+	ChainID    uint32 `mapstructure:"chain_id"`
+	APIURL     string `mapstructure:"api_url"`
 
-	// Lighter specific
-	PrivateKey   string `mapstructure:"private_key"`
-	ChainID      uint32 `mapstructure:"chain_id"`
-	APIURL       string `mapstructure:"api_url"`
-	AccountIndex int64  `mapstructure:"account_index"`
-	APIKeyIndex  uint8  `mapstructure:"api_key_index"`
-	MarketIndex  int16  `mapstructure:"market_index"` // Lighter market index for the symbol
+	// Account Settings
+	AccountIndex int64 `mapstructure:"account_index"`
+	APIKeyIndex  uint8 `mapstructure:"api_key_index"`
+	MarketIndex  int16 `mapstructure:"market_index"`
 }
 
 type StrategyConfig struct {

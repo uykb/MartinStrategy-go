@@ -15,11 +15,7 @@ import (
 )
 
 func main() {
-	// 1. Config (Load from Env Vars only)
-	// We pass an empty string to indicate no config file, forcing Viper to use defaults or env vars
-	// However, our LoadConfig currently expects a file. Let's modify it to be optional or just rely on env.
-	// For now, we assume config.yaml might still exist in Docker container (COPY config.yaml .), 
-	// so we hardcode "config.yaml" as the default location in Docker.
+	// 1. Load configuration from config.yaml or environment variables (MARTIN_* prefix)
 	cfg, err := config.LoadConfig("config.yaml")
 	if err != nil {
 		// In Docker, if config.yaml is missing, we might want to proceed if ENV vars are set.
