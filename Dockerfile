@@ -8,6 +8,9 @@ RUN go mod download
 
 COPY . .
 
+# Tidy modules to ensure go.sum is up to date
+RUN go mod tidy
+
 # Build (pure Go, no CGO needed)
 RUN CGO_ENABLED=0 GOOS=linux go build -o bot cmd/bot/main.go
 
