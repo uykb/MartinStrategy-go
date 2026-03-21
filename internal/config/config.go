@@ -25,6 +25,7 @@ type ExchangeConfig struct {
 	APIURL       string `mapstructure:"api_url"`
 	AccountIndex int64  `mapstructure:"account_index"`
 	APIKeyIndex  uint8  `mapstructure:"api_key_index"`
+	MarketIndex  int16  `mapstructure:"market_index"` // Lighter market index for the symbol
 }
 
 type StrategyConfig struct {

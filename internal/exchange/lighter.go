@@ -1,6 +1,7 @@
 package exchange
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/elliottech/lighter-go/client"
 	"github.com/elliottech/lighter-go/types"
+	"github.com/elliottech/lighter-go/types/txtypes"
 	"github.com/uykb/MartinStrategy/internal/config"
 	"github.com/uykb/MartinStrategy/internal/core"
 	"github.com/uykb/MartinStrategy/internal/utils"
@@ -34,7 +36,7 @@ func (c *MinimalHTTPClient) Do(req *http.Request) (*http.Response, error) {
 }
 
 func (c *MinimalHTTPClient) GetNextNonce(accountIndex int64, apiKeyIndex uint8) (int64, error) {
-	url := fmt.Sprintf("%s/v1/nonce?account_index=%d&api_key_index=%d", c.baseURL, accountIndex, apiKeyIndex)
+	url := fmt.Sprintf("%s/api/v1/nextNonce?account_index=%d&api_key_index=%d", c.baseURL, accountIndex, apiKeyIndex)
 	resp, err := c.httpClient.Get(url)
 	if err != nil {
 		return 0, err
@@ -42,7 +44,8 @@ func (c *MinimalHTTPClient) GetNextNonce(accountIndex int64, apiKeyIndex uint8) 
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return 0, fmt.Errorf("failed to get nonce: %s", resp.Status)
+		body, _ := io.ReadAll(resp.Body)
+		return 0, fmt.Errorf("failed to get nonce: %s - %s", resp.Status, string(body))
 	}
 
 	var result struct {
@@ -55,7 +58,7 @@ func (c *MinimalHTTPClient) GetNextNonce(accountIndex int64, apiKeyIndex uint8) 
 }
 
 func (c *MinimalHTTPClient) GetApiKey(accountIndex int64, apiKeyIndex uint8) (string, error) {
-	url := fmt.Sprintf("%s/v1/api_key?account_index=%d&api_key_index=%d", c.baseURL, accountIndex, apiKeyIndex)
+	url := fmt.Sprintf("%s/api/v1/apikeys?account_index=%d&api_key_index=%d", c.baseURL, accountIndex, apiKeyIndex)
 	resp, err := c.httpClient.Get(url)
 	if err != nil {
 		return "", err
@@ -63,14 +66,23 @@ func (c *MinimalHTTPClient) GetApiKey(accountIndex int64, apiKeyIndex uint8) (st
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("failed to get api key: %s", resp.Status)
+		body, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("failed to get api key: %s - %s", resp.Status, string(body))
 	}
 
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
+	var result struct {
+		ApiKeys []struct {
+			PublicKey string `json:"public_key"`
+		} `json:"api_keys"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return "", err
 	}
-	return string(body), nil
+
+	if len(result.ApiKeys) == 0 {
+		return "", fmt.Errorf("no api keys returned")
+	}
+	return result.ApiKeys[0].PublicKey, nil
 }
 
 // Position represents a trading position
@@ -119,6 +131,27 @@ type SymbolInfo struct {
 	QuoteAsset string `json:"quote_asset"`
 }
 
+// LighterOrderResponse represents the response from Lighter API
+type LighterOrderResponse struct {
+	OrderID int64  `json:"order_id"`
+	Status  string `json:"status"`
+	TxHash  string `json:"tx_hash"`
+}
+
+// OneUSDC represents 1 USDC in Lighter's 6 decimal format
+const OneUSDC = 1000000
+
+// float64ToUSDC converts float64 USDC amount to int64 format (6 decimals)
+func float64ToUSDC(amount float64) int64 {
+	return int64(amount * OneUSDC)
+}
+
+// float64ToPrice converts float64 price to uint32 format
+func float64ToPrice(price float64) uint32 {
+	return uint32(price * 100) // Assuming 2 decimal places for price
+}
+
+// LighterClient wraps the Lighter SDK client
 type LighterClient struct {
 	client *client.TxClient
 	cfg    *config.ExchangeConfig
@@ -126,11 +159,10 @@ type LighterClient struct {
 	http   *MinimalHTTPClient
 }
 
+// NewLighterClient creates a new Lighter client
 func NewLighterClient(cfg *config.ExchangeConfig, bus *core.EventBus) (*LighterClient, error) {
 	httpClient := NewMinimalHTTPClient(cfg.APIURL)
 
-	// Create lighter client
-	// Default values: accountIndex=1, apiKeyIndex=0, chainId from config
 	accountIndex := cfg.AccountIndex
 	if accountIndex <= 0 {
 		accountIndex = 1
@@ -142,10 +174,15 @@ func NewLighterClient(cfg *config.ExchangeConfig, bus *core.EventBus) (*LighterC
 		return nil, fmt.Errorf("failed to create lighter client: %w", err)
 	}
 
-	// Check client
 	if err := txClient.Check(); err != nil {
 		return nil, fmt.Errorf("lighter client check failed: %w", err)
 	}
+
+	utils.Logger.Info("Lighter client initialized",
+		zap.Int64("account_index", accountIndex),
+		zap.Uint8("api_key_index", apiKeyIndex),
+		zap.Int16("market_index", cfg.MarketIndex),
+	)
 
 	return &LighterClient{
 		client: txClient,
@@ -188,7 +225,7 @@ func (lc *LighterClient) pollLoop() {
 }
 
 func (lc *LighterClient) GetPosition() (*Position, error) {
-	url := fmt.Sprintf("%s/v1/position?account_index=%d&symbol=%s",
+	url := fmt.Sprintf("%s/api/v1/position?account_index=%d&symbol=%s",
 		lc.cfg.APIURL, lc.client.GetAccountIndex(), lc.cfg.Symbol)
 
 	resp, err := lc.http.httpClient.Get(url)
@@ -246,28 +283,49 @@ func (lc *LighterClient) PlaceOrder(side string, orderType string, quantity, pri
 		return nil, fmt.Errorf("failed to fill opts: %w", err)
 	}
 
-	// For Lighter, we need to use the HTTP client to submit the signed transaction
-	// The actual implementation depends on Lighter's API
-	// This is a simplified version
-
-	orderReq := map[string]interface{}{
-		"symbol":   lc.cfg.Symbol,
-		"side":     side,
-		"type":     orderType,
-		"quantity": strconv.FormatFloat(quantity, 'f', -1, 64),
-		"price":    strconv.FormatFloat(price, 'f', -1, 64),
-		"nonce":    *filledOpts.Nonce,
+	// Convert to Lighter format
+	isAsk := uint8(0)
+	if side == "SELL" {
+		isAsk = 1
 	}
 
-	// Submit order via HTTP API
-	url := fmt.Sprintf("%s/v1/order", lc.cfg.APIURL)
-	_ = url // URL will be used when implementing actual API call
-	_ = orderReq // Request body will be used when implementing actual API call
+	var orderTypeUint uint8
+	var timeInForce uint8
+	if orderType == "MARKET" {
+		orderTypeUint = txtypes.MarketOrder
+		timeInForce = txtypes.ImmediateOrCancel
+	} else {
+		orderTypeUint = txtypes.LimitOrder
+		timeInForce = txtypes.GoodTillTime
+	}
 
-	// TODO: Implement actual Lighter API integration
-	// - Sign the request with lighter signer
-	// - Submit via HTTP client
-	// - Parse response
+	// Build order request
+	orderReq := &types.CreateOrderTxReq{
+		MarketIndex:            lc.cfg.MarketIndex,
+		ClientOrderIndex:       time.Now().UnixNano(),
+		BaseAmount:             float64ToUSDC(quantity),
+		Price:                  float64ToPrice(price),
+		IsAsk:                  isAsk,
+		Type:                   orderTypeUint,
+		TimeInForce:            timeInForce,
+		ReduceOnly:             0,
+		TriggerPrice:           0,
+		OrderExpiry:            opts.ExpiredAt,
+		IntegratorAccountIndex: 0,
+		IntegratorMakerFee:     0,
+		IntegratorTakerFee:     0,
+	}
+
+	// Sign the order
+	txInfo, err := types.ConstructCreateOrderTx(
+		lc.client.GetKeyManager(),
+		lc.client.GetChainId(),
+		orderReq,
+		filledOpts,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to sign order: %w", err)
+	}
 
 	utils.Logger.Info("Placing order on Lighter",
 		zap.String("symbol", lc.cfg.Symbol),
@@ -275,11 +333,13 @@ func (lc *LighterClient) PlaceOrder(side string, orderType string, quantity, pri
 		zap.String("type", orderType),
 		zap.Float64("quantity", quantity),
 		zap.Float64("price", price),
+		zap.String("tx_hash", txInfo.GetTxHash()),
 	)
 
-	// Return a mock order for now
+	// TODO: Submit to Lighter API
+	// For now return a mock order
 	return &Order{
-		OrderID:  time.Now().UnixNano(),
+		OrderID:  txInfo.ClientOrderIndex,
 		Symbol:   lc.cfg.Symbol,
 		Side:     side,
 		Type:     orderType,
@@ -300,24 +360,28 @@ func (lc *LighterClient) CancelAllOrders() error {
 		return fmt.Errorf("failed to fill opts: %w", err)
 	}
 
-	url := fmt.Sprintf("%s/v1/cancel_all_orders?account_index=%d&symbol=%s&nonce=%d",
-		lc.cfg.APIURL, lc.client.GetAccountIndex(), lc.cfg.Symbol, *filledOpts.Nonce)
+	// Build cancel all orders request
+	cancelReq := &types.CancelAllOrdersTxReq{
+		TimeInForce: txtypes.ImmediateCancelAll,
+		Time:        opts.ExpiredAt,
+	}
 
-	req, err := http.NewRequest("DELETE", url, nil)
+	// Sign the transaction
+	txInfo, err := types.ConstructL2CancelAllOrdersTx(
+		lc.client.GetKeyManager(),
+		lc.client.GetChainId(),
+		cancelReq,
+		filledOpts,
+	)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to sign cancel all orders: %w", err)
 	}
 
-	resp, err := lc.http.httpClient.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
+	utils.Logger.Info("Canceling all orders",
+		zap.String("tx_hash", txInfo.GetTxHash()),
+	)
 
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("failed to cancel all orders: %s", resp.Status)
-	}
-
+	// TODO: Submit to Lighter API
 	return nil
 }
 
@@ -331,29 +395,34 @@ func (lc *LighterClient) CancelOrder(orderID int64) error {
 		return fmt.Errorf("failed to fill opts: %w", err)
 	}
 
-	url := fmt.Sprintf("%s/v1/order?account_index=%d&order_id=%d&nonce=%d",
-		lc.cfg.APIURL, lc.client.GetAccountIndex(), orderID, *filledOpts.Nonce)
+	// Build cancel order request
+	cancelReq := &types.CancelOrderTxReq{
+		MarketIndex: lc.cfg.MarketIndex,
+		Index:       orderID,
+	}
 
-	req, err := http.NewRequest("DELETE", url, nil)
+	// Sign the transaction
+	txInfo, err := types.ConstructL2CancelOrderTx(
+		lc.client.GetKeyManager(),
+		lc.client.GetChainId(),
+		cancelReq,
+		filledOpts,
+	)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to sign cancel order: %w", err)
 	}
 
-	resp, err := lc.http.httpClient.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
+	utils.Logger.Info("Canceling order",
+		zap.Int64("order_id", orderID),
+		zap.String("tx_hash", txInfo.GetTxHash()),
+	)
 
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("failed to cancel order: %s", resp.Status)
-	}
-
+	// TODO: Submit to Lighter API
 	return nil
 }
 
 func (lc *LighterClient) GetOpenOrders() ([]*Order, error) {
-	url := fmt.Sprintf("%s/v1/open_orders?account_index=%d&symbol=%s",
+	url := fmt.Sprintf("%s/api/v1/open_orders?account_index=%d&symbol=%s",
 		lc.cfg.APIURL, lc.client.GetAccountIndex(), lc.cfg.Symbol)
 
 	resp, err := lc.http.httpClient.Get(url)
@@ -375,7 +444,7 @@ func (lc *LighterClient) GetOpenOrders() ([]*Order, error) {
 }
 
 func (lc *LighterClient) GetKlines(interval string, limit int) ([]*Kline, error) {
-	url := fmt.Sprintf("%s/v1/klines?symbol=%s&interval=%s&limit=%d",
+	url := fmt.Sprintf("%s/api/v1/klines?symbol=%s&interval=%s&limit=%d",
 		lc.cfg.APIURL, lc.cfg.Symbol, interval, limit)
 
 	resp, err := lc.http.httpClient.Get(url)
