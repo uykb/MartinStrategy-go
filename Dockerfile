@@ -3,14 +3,11 @@ FROM golang:1.25-alpine AS builder
 
 WORKDIR /app
 
-# Copy only go.mod first (go.sum will be generated)
-COPY go.mod ./
-
-# Generate go.sum and download dependencies
-RUN go mod tidy && go mod download
-
-# Copy the rest of the code
+# Copy all source code first
 COPY . .
+
+# Download dependencies and tidy modules
+RUN go mod tidy && go mod download
 
 # Build (pure Go, no CGO needed)
 RUN CGO_ENABLED=0 GOOS=linux go build -o bot cmd/bot/main.go
