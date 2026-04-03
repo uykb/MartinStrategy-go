@@ -3,7 +3,7 @@ exchange:
   symbol: "HYPEUSDC"                  # Trading pair
   private_key: ""                     # Required: Lighter private key (hex format)
   chain_id: 1                         # Lighter chain ID (1 for mainnet)
-  api_url: "https://api.lighter.xyz"  # Lighter API endpoint
+  api_url: "https://mainnet.zklighter.elliot.ai"  # Lighter API endpoint
   
   # Account Settings
   account_index: 1                    # Account index (default: 1)

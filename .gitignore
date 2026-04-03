@@ -1,16 +1,36 @@
-# Build artifacts
-bot
-bot.exe
-
-# Data directory
-data/
+# Rust
+target/
+Cargo.lock
+**/*.rs.bk
 
 # IDE
 .idea/
 .vscode/
 *.swp
 *.swo
+*~
 
 # OS
 .DS_Store
 Thumbs.db
+
+# Database
+*.db
+*.db-journal
+*.db-shm
+*.db-wal
+
+# Logs
+*.log
+
+# Environment
+.env
+.env.local
+
+# Build artifacts
+/dist
+/build
+
+# Go (legacy)
+/go.mod
+/go.sum

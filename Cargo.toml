@@ -1,0 +1,81 @@
+[package]
+name = "martin-strategy"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+
+[workspace]
+members = [
+    ".",
+    "lighter-rust/poseidon-hash",
+    "lighter-rust/crypto", 
+    "lighter-rust/signer",
+    "lighter-rust/api-client"
+]
+resolver = "2"
+
+[workspace.dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+serde_yaml = "0.9"
+hex = "0.4"
+thiserror = "1.0"
+reqwest = { version = "0.11", features = ["json"] }
+tokio = { version = "1.35", features = ["full"] }
+anyhow = "1.0"
+
+[dependencies]
+# Async runtime
+tokio = { workspace = true }
+tokio-util = "0.7"
+
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+
+# HTTP client
+reqwest = { workspace = true }
+
+# Lighter SDK (workspace member)
+api-client = { path = "lighter-rust/api-client" }
+signer = { path = "lighter-rust/signer" }
+
+# Database
+sqlx = { version = "0.7", features = ["runtime-tokio-native-tls", "sqlite", "migrate", "time"] }
+redis = { version = "0.24", features = ["tokio-comp", "connection-manager"] }
+
+# Configuration
+config = "0.14"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+
+# Error handling
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+
+# Time
+chrono = { version = "0.4", features = ["serde"] }
+
+# Math
+rust_decimal = { version = "1.33", features = ["serde"] }
+
+# Concurrency
+parking_lot = "0.12"
+dashmap = "5.5"
+
+# Utilities
+uuid = { version = "1.7", features = ["v4"] }
+hex = { workspace = true }
+once_cell = "1.19"
+futures = "0.3"
+
+[dev-dependencies]
+tokio-test = "0.4"
+mockall = "0.12"
+
+[[bin]]
+name = "bot"
+path = "src/main.rs"
