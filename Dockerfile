@@ -6,8 +6,8 @@ WORKDIR /app
 # Install build dependencies
 RUN apk add --no-cache musl-dev pkgconfig openssl-dev
 
-# Copy all Cargo.toml files
-COPY Cargo.toml .
+# Copy all Cargo.toml and Cargo.lock files
+COPY Cargo.toml Cargo.lock ./
 COPY lighter-rust/poseidon-hash/Cargo.toml lighter-rust/poseidon-hash/
 COPY lighter-rust/crypto/Cargo.toml lighter-rust/crypto/
 COPY lighter-rust/signer/Cargo.toml lighter-rust/signer/
